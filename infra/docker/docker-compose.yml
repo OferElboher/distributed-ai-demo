@@ -1,4 +1,22 @@
+# Distributed AI Demo infrastructure
+#
+# Role in system
+# --------------
+# Provides the backbone services required for the distributed AI pipeline:
+# - Structured storage: PostgreSQL
+# - Document storage: MongoDB
+# - Async broker: Redis
+# - Event streaming: Kafka
+# - Coordination: Zookeeper
+# - Optional queue: RabbitMQ
+#
+# Flow
+# ----
+# Client / API → Kafka Producer → Kafka → Kafka Consumer → Celery → Worker → DB
+# Other services provide storage and queueing as needed.
+
 services:
+  # PostgreSQL: structured database
   postgres:
     image: postgres:15
     container_name: postgres
@@ -10,7 +28,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Notes:
+    # - Stores system and task metadata
+    # - Data persists across container restarts
 
+  # MongoDB: document storage
   mongo:
     image: mongo:7
     container_name: mongo
@@ -18,13 +40,22 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    # Notes:
+    # - Stores unstructured or semi-structured data (e.g., AI input/output)
+    # - Data persists in named volume
 
+  # Redis: Celery broker
   redis:
     image: redis:7
     container_name: redis
     ports:
       - "6379:6379"
+    # Notes:
+    # - Handles Celery task queueing
+    # - Fast in-memory storage
+    # - No persistence by default (can add volumes if needed)
 
+  # RabbitMQ: optional queue
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
@@ -32,9 +63,13 @@ services:
       RABBITMQ_DEFAULT_USER: demo
       RABBITMQ_DEFAULT_PASS: demo
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "5672:5672"       # AMQP protocol
+      - "15672:15672"     # Web management UI
+    # Notes:
+    # - Can be used as alternate Celery broker or messaging layer
+    # - Web UI available at http://localhost:15672
 
+  # Zookeeper: Kafka coordination
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.1
     container_name: zookeeper
@@ -43,7 +78,10 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
+    # Notes:
+    # - Required by Kafka for leader election and topic management
 
+  # Kafka: event streaming
   kafka:
     image: confluentinc/cp-kafka:7.6.1
     container_name: kafka
@@ -56,7 +94,35 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    # Notes:
+    # - Handles async events from REST API to Consumer
+    # - Single broker in demo setup
+    # - Topic "ai_tasks" expected by consumer
 
+# Persistent volumes
 volumes:
   postgres_data:
+    # Stores PostgreSQL data
   mongo_data:
+    # Stores MongoDB data
+
+# Usage Notes:
+# ------------
+# 1. Start all services:
+#    cd ~/distributed-ai-demo/infra
+#    docker compose up -d
+#
+# 2. Verify service status:
+#    docker compose ps
+#
+# 3. Access:
+#    - PostgreSQL: localhost:5432
+#    - MongoDB: localhost:27017
+#    - Redis: localhost:6379
+#    - RabbitMQ UI: http://localhost:15672
+#    - Kafka: localhost:9092
+#    - Zookeeper: localhost:2181
+#
+# 4. Make sure Kafka topic "ai_tasks" exists before producing messages.
+#
+# 5. Volumes ensure data persists even if containers are removed.

@@ -1,0 +1,46 @@
+# Python / Django
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+*.log
+
+# Virtual environments
+venv/
+.env/
+*.venv
+.poetry/
+__pypackages__/
+
+# Django
+db.sqlite3
+media/
+staticfiles/
+
+# VS Code
+.vscode/
+.history/
+*.code-workspace
+
+# Node / frontend
+node_modules/
+package-lock.json
+yarn.lock
+npm-debug.log
+
+# Docker
+docker-compose.override.yml
+*.pid
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Celery
+celerybeat-schedule
+
+# Jupyter notebooks
+.ipynb_checkpoints/

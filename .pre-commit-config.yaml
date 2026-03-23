@@ -1,0 +1,25 @@
+# .pre-commit-config.yaml
+# Pre-commit hooks for Distributed AI Demo.
+# Uses Ruff for linting and auto-formatting.
+# Long lines (E501) are ignored to allow documentation docstrings.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.0
+    hooks:
+      # Ruff linting hook
+      - id: ruff
+        args: ["--ignore=E501"]  # Ignore long lines (E501) so docstrings or Markdown lines don't block commits.
+        additional_dependencies: []  # May later add extra packages if needed.
+
+      # Ruff formatting hook (auto-fixes style issues)
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Optional: automatically remove trailing whitespace in all files
+      - id: trailing-whitespace
+
+  # Optional: normalize line endings to LF
+      - id: end-of-file-fixer
