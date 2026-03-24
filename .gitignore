@@ -1,16 +1,18 @@
 # Python / Django
 __pycache__/
 *.py[cod]
+*.pyc
 *.pyo
 *.pyd
 *.sqlite3
 *.log
 
-# Virtual environments
+# Environments variables used to store environment secrets
+.env
+
+# Python virtual environments
 venv/
-.env/
 *.venv
-.poetry/
 __pypackages__/
 
 # Django
@@ -18,8 +20,9 @@ db.sqlite3
 media/
 staticfiles/
 
-# VS Code
+# IDE, VS Code
 .vscode/
+.idea/
 .history/
 *.code-workspace
 

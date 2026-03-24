@@ -15,6 +15,16 @@
 # Client / API → Kafka Producer → Kafka → Kafka Consumer → Celery → Worker → DB
 # Other services provide storage and queueing as needed.
 
+backend:
+  build: ./backend
+
+  # Load environment variables from file during the installation (e.g., at a production server).
+  env_file:
+    - ./backend/.env
+
+  depends_on:
+    - postgres
+
 services:
   # PostgreSQL: structured database
   postgres:

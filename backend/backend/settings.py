@@ -33,29 +33,61 @@ Used by
 - Kafka consumer
 - Management commands
 
+Environment configuration
+-------------------------
+python-dotenv loads variables from backend/.env into the process environment so they can be accessed by each process (e.g., Django) via os.getenv().
+This way:
+- This settings file, instead of recording credentials & secrets, e.g., PASSWORD = "demo", uses instead: PASSWORD = os.getenv("POSTGRES_PASSWORD").
+- The real PASSWORD is stored in backend/.env (note that .gitignore must be then used in order to exclude .env files from being tracked in Git repositories).
+
+This allows:
+- No secrets in source code (and therefore in Git repositories)
+- Different values per environment
+- Easy Docker / Kubernetes integration
+
 Notes
 -----
 This settings module configures only the API layer.
 Distributed processing happens outside Django via Kafka and Celery workers.
 """
 
+import os
+from dotenv import load_dotenv
 from pathlib import Path
+
+# In development load .env file if present.
+# In production this usually comes from real environment variables.
+# (See further info at "Environment configuration" above.)
+load_dotenv()
 
 # BASE_DIR: root of the backend project.
 # Used for relative paths to templates, static files, etc.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# SECURITY WARNING: keep the secret key used in production secret!
+# Django secret key.
 # This key is used for cryptographic signing (sessions, CSRF tokens, etc.).
-SECRET_KEY = "django-insecure-0^m&-j-(eapfa@f#a9eyl&wp8*44cyks^((-eqblemye7j6+%9"
+# Along development it is set to a fallback value.
+# The production secret key must never be stored in Git repositories, but loaded from environment variable instead.
+# (See further info at "Environment configuration" above.)
+SECRET_KEY = os.getenv(
+    "DJANGO_SECRET_KEY", "dev-insecure-secret-key"
+)  # A production (real world) secret key looks something like: "django-insecure-0^m&-j-(eapfa@f#a9eyl&wp8*44cyks^((-eqblemye7j6+%9"
 
-# DEBUG mode: True shows detailed error pages; should be False in production.
-DEBUG = True
+# DEBUG mode.
+# Along development set True in order to show detailed error pages.
+# In production set True using an environment variable in order to prevent the display of detailed error pages.
+# (See further info at "Environment configuration" above.)
+DEBUG = os.getenv("DEBUG", "True") == "True"
 
-# Hosts allowed to connect; empty for development, must set in production.
-# A list of hostnames or IP addresses that Django will accept HTTP requests from.
+# Hosts allowed to connect, that is, a list of hostnames or IP addresses that Django will accept HTTP requests from.
+# When DEBUG is True, an empty list only allows a limited set of development-related hosts (e.g., localhost, 127.0.0.1, api.company.com).
+# If DEBUG is False, an empty list will prevent the application from serving any requests not using those specific hosts.
+# Django raises a DisallowedHost error (400 response) for incoming requests from non-allowed hosts.
+# Along development it is set empty (see above).
+# In production must be set using an environment variable in order to prevent connections with restricted hosts.
 # Django uses it to prevent HTTP Host header attacks, which are a type of security vulnerability where a request can pretend to be sent to the server from a fake host.
-ALLOWED_HOSTS = []
+# (See further info at "Environment configuration" above.)
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
 
 # Installed applications
 # ----------------------
@@ -125,15 +157,21 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Database configuration
 # ----------------------
 # PostgreSQL: structured storage
-# Matches docker-compose credentials
+# Matches docker-compose credentials.
+# While along deveopment the defaults are used, in production systems environment variables are used.
+# All credentials are read from environment variables to avoid storing secrets in source code.
+# Defaults allow local development without configuration.
+# Along development it is set empty (see above).
+# In production must be set using an environment variable in order to prevent connections with restricted hosts;
+# (See further info at "Environment configuration" above.)
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "demo",
-        "USER": "demo",
-        "PASSWORD": "demo",
-        "HOST": "localhost",
-        "PORT": "5432",
+        "NAME": os.getenv("POSTGRES_DB", "demo"),
+        "USER": os.getenv("POSTGRES_USER", "demo"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "demo"),
+        "HOST": os.getenv("POSTGRES_HOST", "localhost"),
+        "PORT": os.getenv("POSTGRES_PORT", "5432"),
     }
 }
 
