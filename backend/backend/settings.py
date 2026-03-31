@@ -55,42 +55,55 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
-# In development load .env file if present.
-# In production this usually comes from real environment variables.
-# (See further info at "Environment configuration" above.)
-load_dotenv()
+import sentry_sdk
+from sentry_sdk.integrations.django import DjangoIntegration
+
 
 # BASE_DIR: root of the backend project.
 # Used for relative paths to templates, static files, etc.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Environment configuration.
+# Defines which environment Django runs in.
+# Supported values: dev (local development), staging (pre-production validation), prod (production deployment)
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
+IS_DEV = ENVIRONMENT == "dev"
+IS_STAGING = ENVIRONMENT == "staging"
+IS_PROD = ENVIRONMENT == "prod"
+
+# In development load environment variables from the file backend/.env, if present.
+# In staging & production this usually comes from real environment variables.
+# (See further info at "Environment configuration" above.)
+load_dotenv(
+    BASE_DIR / f".env.{ENVIRONMENT}", override=False
+)  # Unsetting override makes real env vars override .env, which is correct for Docker & Kubernetes.
+
 # Django secret key.
 # This key is used for cryptographic signing (sessions, CSRF tokens, etc.).
 # Along development it is set to a fallback value.
-# The production secret key must never be stored in Git repositories, but loaded from environment variable instead.
+# The staging & production secret key must never be stored in Git repositories, but loaded from environment variable instead.
 # (See further info at "Environment configuration" above.)
 SECRET_KEY = os.getenv(
     "DJANGO_SECRET_KEY", "dev-insecure-secret-key"
-)  # A production (real world) secret key looks something like: "django-insecure-0^m&-j-(eapfa@f#a9eyl&wp8*44cyks^((-eqblemye7j6+%9"
+)  # Sample real world secret key: "django-insecure-0^m&-j-(eapfa@f#a9eyl&wp8*44cyks^((-eqblemye7j6+%9"
 
 # DEBUG mode.
 # Along development set True in order to show detailed error pages.
-# In production set True using an environment variable in order to prevent the display of detailed error pages.
+# In staging & production unset using an environment variable (unsetting prevents the display of detailed error pages).
 # (See further info at "Environment configuration" above.)
-DEBUG = os.getenv("DEBUG", "True") == "True"
+DEBUG = os.getenv("DEBUG", "False" if IS_STAGING or IS_PROD else "True") == "True"
 
 # Hosts allowed to connect, that is, a list of hostnames or IP addresses that Django will accept HTTP requests from.
 # When DEBUG is True, an empty list only allows a limited set of development-related hosts (e.g., localhost, 127.0.0.1, api.company.com).
 # If DEBUG is False, an empty list will prevent the application from serving any requests not using those specific hosts.
 # Django raises a DisallowedHost error (400 response) for incoming requests from non-allowed hosts.
 # Along development it is set empty (see above).
-# In production must be set using an environment variable in order to prevent connections with restricted hosts.
+# In staging & production must be set using an environment variable in order to prevent connections with restricted hosts.
 # Django uses it to prevent HTTP Host header attacks, which are a type of security vulnerability where a request can pretend to be sent to the server from a fake host.
 # (See further info at "Environment configuration" above.)
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
 
-# Installed applications
-# ----------------------
+# Installed applications.
 # - Django core apps: admin, auth, contenttypes, sessions, messages, staticfiles
 # - REST framework: for API endpoints
 # - core: custom app containing Kafka producers/consumers and Celery tasks
@@ -105,8 +118,7 @@ INSTALLED_APPS = [
     "core",
 ]
 
-# Middleware stack
-# ----------------
+# Middleware stack.
 # Handles requests/responses: security, sessions, CSRF, auth, messages, clickjacking protection.
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -125,8 +137,7 @@ MIDDLEWARE = [
 # Django will import this module, and look for a variable called urlpatterns, the list of all URL patterns for the project.
 ROOT_URLCONF = "backend.urls"  # 'backend.urls' → <backend/urls.py>.
 
-# Templates configuration
-# -----------------------
+# Templates configuration.
 # A list of template engine configurations.
 # Templates are HTML files or other text formats that Django can render and send as HTTP responses.
 # Even in case of a REST API that primarily returns JSON, TEMPLATES is still used for:
@@ -154,8 +165,7 @@ TEMPLATES = [
 # WSGI entrypoint: used in production deployment to run the API layer.
 WSGI_APPLICATION = "backend.wsgi.application"
 
-# Database configuration
-# ----------------------
+# Database configuration.
 # PostgreSQL: structured storage
 # Matches docker-compose credentials.
 # While along deveopment the defaults are used, in production systems environment variables are used.
@@ -185,8 +195,7 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# Internationalization
-# --------------------
+# Internationalization.
 LANGUAGE_CODE = "en-us"  # Language for the API / admin interface
 TIME_ZONE = "UTC"  # UTC timezone for distributed consistency
 USE_I18N = True  # Enable Django internationalization
@@ -195,11 +204,28 @@ USE_TZ = True  # Enable timezone-aware datetimes
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = "static/"  # URL prefix for static files
 
-# Celery configuration
-# -------------------
+# Celery configuration.
 # Connects Celery to Redis broker.
 # Ensures tasks (Kafka -> Celery) are serialized in JSON.
-CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
+
+# Sentry error tracking.
+# Sentry collects runtime exceptions and performance metrics.
+# Enabled only when SENTRY_DSN is defined.
+# Automatically tagged with environment (dev/staging/prod).
+SENTRY_ENABLED = os.getenv("SENTRY_ENABLED", "False") == "True"
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+if SENTRY_ENABLED and SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=ENVIRONMENT,  # Attaches environment name (see ENVIRONMENT defined above).
+        traces_sample_rate=float(
+            os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0")
+        ),  # Set traces_sample_rate to 1.0 to capture 100% of transactions for tracing.
+        send_default_pii=False,  # Prevents sending sensitive user data like request headers and IP for users (see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info).
+        enable_logs=True,  # Enables to send logs to Sentry.
+        integrations=[DjangoIntegration()],
+    )

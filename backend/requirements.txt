@@ -1,0 +1,19 @@
+# Lists all Python dependencies your backend and Celery workers need.
+
+# Django REST framework
+Django>=4.2
+
+# Celery
+celery>=5.3
+redis>=5.0
+
+# Database drivers
+psycopg2-binary>=2.9      # PostgreSQL
+pymongo>=4.3               # MongoDB
+
+# Kafka
+confluent-kafka>=2.1
+
+# Optional: HTTP requests, environment handling
+requests>=2.31
+python-dotenv>=1.1

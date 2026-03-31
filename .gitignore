@@ -9,6 +9,8 @@ __pycache__/
 
 # Environments variables used to store environment secrets
 .env
+.env.*
+!.env.example
 
 # Python virtual environments
 venv/

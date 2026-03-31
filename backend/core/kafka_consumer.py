@@ -20,6 +20,7 @@ This layer bridges event streaming with async worker processing.
 
 import json
 from kafka import KafkaConsumer
+import os
 from typing import Dict, Any
 
 from core.tasks import add
@@ -33,7 +34,7 @@ TOPIC_NAME = "ai_tasks"
 # Runs as a long-lived process that continuously listens for new events coming from REST API via Kafka producer.
 consumer = KafkaConsumer(
     TOPIC_NAME,
-    bootstrap_servers="localhost:9092",
+    bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"),
     value_deserializer=lambda m: json.loads(m.decode("utf-8")),
 )
 
