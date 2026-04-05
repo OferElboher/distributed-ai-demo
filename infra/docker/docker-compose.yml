@@ -337,8 +337,7 @@ services:
     container_name: rabbitmq
 
     # Load environment-specific configuration file.
-    # Note:
-    # - The environment-specific configuration file, among the others, also sets the required credentials, RABBITMQ_DEFAULT_USER & RABBITMQ_DEFAULT_PASSWORD.
+    # The environment-specific configuration file, among the others, also sets the required credentials, RABBITMQ_DEFAULT_USER & RABBITMQ_DEFAULT_PASSWORD.
     # ${ENVIRONMENT:-dev} means: use ENVIRONMENT variable if exists, or otherwise default to "dev".
     # Examples:
     #   ENVIRONMENT=dev     -> .env.dev
@@ -346,6 +345,20 @@ services:
     #   ENVIRONMENT=prod    -> .env.prod
     env_file:
       - ../../backend/.env.${ENVIRONMENT:-dev}
+
+    environment:
+      # Set default login credentials for RabbitMQ.
+      # The format "${VAR:-default}" instructs to use the environment variable if set, and otherwise defaults to the value after ":-".
+      # Using this environment variable allows to keep one <docker-compose.yml>, and switch environments via <.env> files.
+      # Set username for connecting apps (Celery, backend).
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-demo}
+      # Set password for the above user.
+      RABBITMQ_DEFAULT_PASSWORD: ${RABBITMQ_PASSWORD:-demo}
+      # Set custom virtual host (vhost) per environment.
+      # Custom virtual hosts are used with RabbitMQ as best practice to isolate groups of queues, exchanges, and users, especially in multi-service environments or for isolation between the activity of the dev, test, and prod environment versions.
+      # The default vhost "/" (a single slash) is used if a custom vhost isn't explicitly specified in the app connection, CELERY_BROKER_URL.
+      # RABBITMQ_DEFAULT_VHOST: /
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/dev}
 
     ports:
       # For the purpose of AMQP protocol, expose queue to host machine via port 5672.

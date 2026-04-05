@@ -116,6 +116,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "core",
+    "health",
 ]
 
 # Middleware stack.
@@ -170,6 +171,7 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Matches docker-compose credentials.
 # While along deveopment the defaults are used, in production systems environment variables are used.
 # All credentials are read from environment variables to avoid storing secrets in source code.
+# With HOST, the service name defined in docker-compose should be used, not "localhost".
 # Defaults allow local development without configuration.
 # Along development it is set empty (see above).
 # In production must be set using an environment variable in order to prevent connections with restricted hosts;
@@ -180,11 +182,10 @@ DATABASES = {
         "NAME": os.getenv("POSTGRES_DB", "demo"),
         "USER": os.getenv("POSTGRES_USER", "demo"),
         "PASSWORD": os.getenv("POSTGRES_PASSWORD", "demo"),
-        "HOST": os.getenv("POSTGRES_HOST", "localhost"),
+        "HOST": os.getenv("POSTGRES_HOST", "postgres"),
         "PORT": os.getenv("POSTGRES_PORT", "5432"),
     }
 }
-
 # Password validators for strong admin credentials
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -204,10 +205,21 @@ USE_TZ = True  # Enable timezone-aware datetimes
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = "static/"  # URL prefix for static files
 
+# RabbitMQ configuration.
+# RabbitMQ credentials and vhost.
+RABBITMQ_USER = os.getenv("RABBITMQ_USER", "demo")
+RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD", "demo")
+RABBITMQ_VHOST = os.getenv("RABBITMQ_VHOST", f"/{ENVIRONMENT}")
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
+RABBITMQ_PORT = os.getenv("RABBITMQ_PORT", "5672")
+
 # Celery configuration.
-# Connects Celery to Redis broker.
+# The broker connects Celery to RabbitMQ.
+CELERY_BROKER_URL = os.getenv(
+    "CELERY_BROKER_URL",
+    f"amqp://{RABBITMQ_USER}:{RABBITMQ_PASSWORD}@{RABBITMQ_HOST}:{RABBITMQ_PORT}{RABBITMQ_VHOST}",
+)
 # Ensures tasks (Kafka -> Celery) are serialized in JSON.
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"

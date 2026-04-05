@@ -38,7 +38,7 @@ Endpoints
 """
 
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 
 from core.views import submit_task
 
@@ -58,4 +58,5 @@ urlpatterns = [
     # Body: JSON
     # Returns: {"status": "queued"}
     path("api/submit", submit_task),
+    path("api/health/", include("health.urls")),
 ]

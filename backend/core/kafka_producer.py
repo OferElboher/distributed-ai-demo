@@ -29,6 +29,7 @@ Kafka broker running on localhost:9092
 """
 
 import json
+import time
 from typing import (
     Dict,
     Any,
@@ -42,10 +43,21 @@ TOPIC_NAME = "ai_tasks"
 
 # Global Kafka producer instance.
 # This producer is reused across all REST requests to avoid reconnecting to Kafka for every message.
-producer = KafkaProducer(
-    bootstrap_servers="localhost:9092",
-    value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-)
+producer = None
+
+
+def get_producer() -> KafkaProducer:
+    global producer
+    while producer is None:
+        try:
+            producer = KafkaProducer(
+                bootstrap_servers="localhost:9092",
+                value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            )
+        except Exception:
+            print("Kafka not ready, retrying in 2 seconds...")
+            time.sleep(2)
+    return producer
 
 
 def send_task(data: Dict[str, Any]) -> None:
@@ -90,5 +102,6 @@ def send_task(data: Dict[str, Any]) -> None:
     producer.flush() ensures message delivery before returning.
     This is safer but slightly slower, that can be removed later for higher throughput.
     """
+    producer = get_producer()
     producer.send(TOPIC_NAME, data)
     producer.flush()
