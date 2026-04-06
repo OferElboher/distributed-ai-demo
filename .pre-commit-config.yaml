@@ -3,6 +3,15 @@
 # Uses Ruff for linting and auto-formatting.
 # Long lines (E501) are ignored to allow documentation docstrings.
 
+# **********************************************************
+# *** IMPORTANT:                                         ***
+# *** Run the following commands, to ensure that:        ***
+# *** 1) The pre-commit hooks are installed for commits: ***
+# ***    pre-commit install --install-hooks              ***
+# *** 2) The pre-push hook is installed and active:      ***
+# ***    pre-commit install --hook-type pre-push         ***
+# **********************************************************
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.5.0
@@ -23,3 +32,11 @@ repos:
 
   # Optional: normalize line endings to LF
       - id: end-of-file-fixer
+
+  - repo: local  # This is a local hook (not pulled from GitHub).
+    hooks:
+      - id: django-tests  # Unique identifier for the hook.
+        name: Run Django tests before push
+        entry: hooks/run-tests.sh  # Path to the shell script to execute.
+        language: script  # A simple shell script.
+        stages: [push]  # Run this only before git push.

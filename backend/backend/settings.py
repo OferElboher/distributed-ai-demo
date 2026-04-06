@@ -107,6 +107,7 @@ ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
 # - Django core apps: admin, auth, contenttypes, sessions, messages, staticfiles
 # - REST framework: for API endpoints
 # - core: custom app containing Kafka producers/consumers and Celery tasks
+# - health: custom app containing health checks
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

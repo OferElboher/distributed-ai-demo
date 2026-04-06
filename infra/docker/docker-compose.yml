@@ -82,6 +82,9 @@ services:
     env_file:
       - ../../backend/.env.${ENVIRONMENT:-dev}
 
+    environment:
+      DJANGO_SETTINGS_MODULE: backend.settings
+
     ports:
       # Expose backend to host machine via port 8000.
       # Map host port 8000 → container port 8000, in order to allow users to access the backend from their browser using the URL "http://localhost:8000".

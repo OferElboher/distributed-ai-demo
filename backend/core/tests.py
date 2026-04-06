@@ -1,3 +1,9 @@
-# from django.test import TestCase  <<<--- Comment-in once any tests are actually defined below!
+from django.test import TestCase
+from core.tasks import add
 
-# Create your tests here.
+
+class TestTask(TestCase):
+    def test_add_task(self):
+        print("\ntesting task add...")
+        result = add.delay(2, 3)
+        self.assertEqual(result.get(timeout=5), 5)
