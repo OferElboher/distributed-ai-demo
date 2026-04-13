@@ -187,6 +187,26 @@ DATABASES = {
         "PORT": os.getenv("POSTGRES_PORT", "5432"),
     }
 }
+
+
+# ---------------------------------------------------------------------------
+# OPTIONAL FALLBACK — SQLITE (local development)
+# ---------------------------------------------------------------------------
+# Activated ONLY when explicitly requested:
+#     USE_SQLITE=true python manage.py runserver
+#
+# Why:
+# - Allows lightweight local dev without Docker/Postgres
+# - Keeps CI and production using Postgres
+#
+if os.getenv("USE_SQLITE", "false").lower() == "true":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
+
 # Password validators for strong admin credentials
 AUTH_PASSWORD_VALIDATORS = [
     {
