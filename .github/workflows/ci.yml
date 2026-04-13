@@ -1,0 +1,258 @@
+# .github/workflows/ci.yml — Fully Documented CI Pipeline
+#
+# This file defines the initial CI pipeline (safe-start).
+# It will evolve into a full distributed pipeline.
+#
+# See:
+# docs/ci_pipeline_architecture_distributed_ai_demo.md
+
+###############################################################################
+# CI PIPELINE — DISTRIBUTED AI DEMO
+#
+# Safe-start version.
+#
+# Purpose:
+# - Validate repository integrity
+# - Ensure dependencies install correctly
+# - Run Django tests in isolation
+#
+# Future extensions:
+# - Lint / format / type-check (parallel jobs)
+# - PostgreSQL service
+# - Redis + Celery
+# - Kafka
+# - End-to-end tests
+# - Docker build
+###############################################################################
+
+name: CI
+
+###############################################################################
+# TRIGGERS
+###############################################################################
+on:
+  push:
+    branches: [ main ]
+    # Run CI on every push to main
+
+  pull_request:
+    branches: [ main ]
+    # Run CI on PRs before merge
+
+###############################################################################
+# JOBS
+###############################################################################
+jobs:
+
+  tests:
+
+    ###########################################################################
+    # RUNNER
+    ###########################################################################
+    runs-on: ubuntu-latest
+    # GitHub-hosted VM
+    # - clean environment every run
+    # - reproducible builds
+    # - includes common tooling
+
+    ###########################################################################
+    # SERVICES — POSTGRESQL
+    #
+    # GitHub Actions allows defining "service containers".
+    # These are Docker containers automatically started BEFORE steps run.
+    #
+    # They are:
+    # - network-accessible from the job
+    # - isolated per workflow run
+    # - automatically cleaned up
+    #
+    # Access pattern:
+    # - inside the job → available via "localhost:<port>"
+    ###########################################################################
+    services:
+      postgres:
+        image: postgres:15
+        # Docker image used for the service
+        #
+        # "postgres:15":
+        # - official PostgreSQL image
+        # - version 15 (stable, production-grade)
+        #
+        # Alternatives:
+        # - postgres:14
+        # - postgres:latest (NOT recommended for CI stability)
+
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        # Environment variables passed INTO the container
+        #
+        # These configure PostgreSQL at startup:
+        # - POSTGRES_DB        → database created automatically
+        # - POSTGRES_USER      → default user
+        # - POSTGRES_PASSWORD  → user password
+        #
+        # These values must match Django settings later
+
+        ports:
+          - 5432:5432
+        # Port mapping:
+        # - left side: port on CI runner
+        # - right side: port inside container
+        #
+        # This allows Django to connect via:
+        #   localhost:5432
+
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        # Health check configuration
+        #
+        # Problem:
+        # - container may start BEFORE DB is ready
+        #
+        # Solution:
+        # - GitHub waits until this health check passes
+        #
+        # pg_isready:
+        # - built-in Postgres readiness check
+        #
+        # retries logic:
+        # - tries every 10 seconds
+        # - waits up to ~50 seconds total
+
+    ###########################################################################
+    # STEPS
+    ###########################################################################
+    steps:
+
+      #########################################################################
+      # STEP 1 — CHECKOUT CODE
+      #########################################################################
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        # Syntax: owner/repo@ref
+        #
+        # "actions/checkout" = official GitHub action
+        #
+        # "@v4" = version reference
+        #
+        # Explanation of @v4:
+        # - "v4" is a MAJOR version tag
+        # - Follows semantic versioning (MAJOR.MINOR.PATCH)
+        # - Resolves to latest 4.x.x release
+        #
+        # Behavior:
+        # - Includes bug fixes automatically
+        # - Avoids breaking changes (those require v5)
+        #
+        # Alternatives:
+        # - @v4.2.0   → exact version (fully pinned)
+        # - @main     → latest commit (NOT recommended)
+        # - @<SHA>    → exact commit (maximum security)
+        #
+        # Purpose:
+        # - clones repository into CI runner
+
+
+      #########################################################################
+      # STEP 2 — SETUP PYTHON
+      #########################################################################
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        # "actions/setup-python" installs Python runtime
+        #
+        # "@v5":
+        # - latest version within major v5
+        # - safe updates (no breaking changes)
+
+        with:
+          python-version: "3.11"
+          # Python version to install
+          #
+          # Options:
+          # - "3.11"   → latest patch (recommended)
+          # - "3.11.7" → exact version
+          # - matrix    → multiple versions (future)
+
+          cache: "pip"
+          # Enables caching of pip downloads
+          #
+          # Effect:
+          # - faster installs
+          # - Poetry benefits indirectly (uses pip)
+
+
+      #########################################################################
+      # STEP 3 — INSTALL POETRY
+      #########################################################################
+      - name: Install Poetry
+        run: pip install poetry
+        # Installs Poetry globally
+        #
+        # Alternative (future):
+        # - pipx install poetry (better isolation)
+
+
+      #########################################################################
+      # STEP 4 — INSTALL DEPENDENCIES
+      #########################################################################
+      - name: Install dependencies
+        run: poetry install --no-root
+        # Installs dependencies from:
+        # - pyproject.toml
+        # - poetry.lock
+        #
+        # Behavior:
+        # - creates virtual environment
+        # - installs exact versions
+        #
+        # CRITICAL FLAG "--no-root" EXPLAINED
+        # -----------------------------------
+        # Flag "--no-root" prevents Poetry from trying to install this project as a Python package.
+        # Without this:
+        # - Poetry attempts "Installing current project"
+        # - Fails because this repo is NOT a Python package
+        # Why this project is not a package:
+        # - Django project (backend/)
+        # - distributed system (Celery, Kafka, workers)
+        # - no single importable root module
+        # Result:
+        # - installs dependencies ONLY
+        # - skips packaging step
+        # - prevents CI failure
+
+      #########################################################################
+      # STEP 5 — RUN DJANGO TESTS
+      #########################################################################
+      - name: Run Django tests
+        run: poetry run python backend/manage.py test
+        # Executes Django test suite
+        #
+        # Current scope:
+        # - no external services
+        # - SQLite or default DB
+        #
+        # Future:
+        # - split into layers
+        # - add Postgres
+        # - add integration tests
+
+###############################################################################
+# FUTURE ARCHITECTURE (SUMMARY)
+###############################################################################
+#
+# Planned jobs:
+#
+# lint → unit-tests → postgres-tests → celery-tests → kafka-tests → docker-build
+#
+# Using:
+#   needs:
+#
+# Ensures:
+# - fail-fast behavior
+# - clear debugging
+###############################################################################
