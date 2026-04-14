@@ -241,6 +241,15 @@ jobs:
         # - add Postgres
         # - add integration tests
 
+  tests-celery:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
 ###############################################################################
 # FUTURE ARCHITECTURE (SUMMARY)
 ###############################################################################

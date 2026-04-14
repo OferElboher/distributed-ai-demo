@@ -193,13 +193,15 @@ DATABASES = {
 # OPTIONAL FALLBACK — SQLITE (local development)
 # ---------------------------------------------------------------------------
 # Activated ONLY when explicitly requested:
-#     USE_SQLITE=true python manage.py runserver
+#     poetry run env USE_SQLITE=true python backend/manage.py test -v 2
 #
 # Why:
 # - Allows lightweight local dev without Docker/Postgres
 # - Keeps CI and production using Postgres
 #
-if os.getenv("USE_SQLITE", "false").lower() == "true":
+
+USE_SQLITE = os.getenv("USE_SQLITE", "false").lower() == "true"
+if USE_SQLITE:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
@@ -262,3 +264,13 @@ if SENTRY_ENABLED and SENTRY_DSN:
         enable_logs=True,  # Enables to send logs to Sentry.
         integrations=[DjangoIntegration()],
     )
+
+# -------------------------------------------------------------------
+# CELERY TEST CONFIGURATION
+# -------------------------------------------------------------------
+# In test / local mode, run tasks synchronously (no Redis, no worker)
+# Activated ONLY when explicitly requested:
+#     poetry run env USE_SQLITE=true CELERY_EAGER=true python backend/manage.py test
+CELERY_EAGER = os.getenv("CELERY_EAGER", "false").lower() == "true"
+CELERY_TASK_ALWAYS_EAGER = CELERY_EAGER  # Makes <task-name>.delay() run instantly.
+CELERY_TASK_EAGER_PROPAGATES = CELERY_EAGER  # Exceptions bubble up (good for tests).
