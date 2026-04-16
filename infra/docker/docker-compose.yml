@@ -120,12 +120,13 @@ services:
     restart: unless-stopped
 
     # Health check (see "Healthcheck" above).
+    # Note: The original healthcheck tried the url "/" (or "http://localhost:8000/") and expected "HTTP 200 OK", but "/" is not defined, so Django returned "GET / → 404", what made Docker mark it as "unhealthy (ExitCode 22)".
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      # test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
       interval: 10s
       timeout: 5s
       retries: 5
-
 
   # Kafka Consumer — Kafka Events Reader and Celery Tasks Dispatcher
   kafka-consumer:

@@ -1,46 +1,19 @@
 #!/usr/bin/env python
 
+import os
+import sys
+from pathlib import Path
+
 """
 Django management entrypoint.
 Django's command-line utility for administrative tasks.
-
-Role in system
---------------
-This file serves as the command-line entrypoint for Django administrative tasks within the distributed AI demo.
-It allows developers and the system to:
-
-- Start the Django REST API server
-- Run database migrations
-- Launch the Kafka consumer command via custom management commands
-- Perform other Django admin tasks (createsuperuser, collectstatic, etc.)
-
-Flow
-----
-CLI -> manage.py -> main() -> Django execute_from_command_line -> REST API / commands
-
-Responsibilities
-----------------
-- Set default Django settings module
-- Import Django management utilities
-- Execute commands provided via CLI
-- Handle ImportError if Django is not installed
-- Serve as the main entrypoint for running the API and management tasks
-
-Notes
------
-- This is the "REST API layer entrypoint" of the distributed AI architecture.
-- All administrative commands (including starting the Kafka consumer or Celery tasks)
-  are executed via this main() function.
-
-This file effectively **starts the REST API layer** of the architecture and provides access to all standard Django management operations.
 """
 
-import os
-import sys
-
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, BASE_DIR)
+# Ensure project root is in Python path.
+# Note: The relative path of this module is <.../distributed-ai-demo/backend/manage.py>.
+BASE_DIR = Path(__file__).resolve().parent  # <.../distributed-ai-demo/backend/>
+PROJECT_ROOT = BASE_DIR.parent  # <.../distributed-ai-demo/>
+sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def main():
@@ -74,19 +47,17 @@ def main():
     -------
     None: Executes the requested Django command
     """
-    # Ensure the Django settings module is defined
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings")
+
+    # Ensure Django settings module is defined
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.backend.settings")
 
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
         raise ImportError(
-            "Couldn't import Django. Are you sure it's installed and "
-            "available on your PYTHONPATH environment variable? Did you "
-            "forget to activate a virtual environment?"
+            "Couldn't import Django. Check PYTHONPATH / virtualenv setup."
         ) from exc
 
-    # Execute the Django command specified in sys.argv
     execute_from_command_line(sys.argv)
 
 

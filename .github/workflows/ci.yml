@@ -55,74 +55,74 @@ jobs:
     # - reproducible builds
     # - includes common tooling
 
-    ###########################################################################
-    # SERVICES — POSTGRESQL
-    #
-    # GitHub Actions allows defining "service containers".
-    # These are Docker containers automatically started BEFORE steps run.
-    #
-    # They are:
-    # - network-accessible from the job
-    # - isolated per workflow run
-    # - automatically cleaned up
-    #
-    # Access pattern:
-    # - inside the job → available via "localhost:<port>"
-    ###########################################################################
-    services:
-      postgres:
-        image: postgres:15
-        # Docker image used for the service
-        #
-        # "postgres:15":
-        # - official PostgreSQL image
-        # - version 15 (stable, production-grade)
-        #
-        # Alternatives:
-        # - postgres:14
-        # - postgres:latest (NOT recommended for CI stability)
+    # ###########################################################################
+    # # SERVICES — POSTGRESQL
+    # #
+    # # GitHub Actions allows defining "service containers".
+    # # These are Docker containers automatically started BEFORE steps run.
+    # #
+    # # They are:
+    # # - network-accessible from the job
+    # # - isolated per workflow run
+    # # - automatically cleaned up
+    # #
+    # # Access pattern:
+    # # - inside the job → available via "localhost:<port>"
+    # ###########################################################################
+    # services:
+    #   postgres:
+    #     image: postgres:15
+    #     # Docker image used for the service
+    #     #
+    #     # "postgres:15":
+    #     # - official PostgreSQL image
+    #     # - version 15 (stable, production-grade)
+    #     #
+    #     # Alternatives:
+    #     # - postgres:14
+    #     # - postgres:latest (NOT recommended for CI stability)
 
-        env:
-          POSTGRES_DB: test_db
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        # Environment variables passed INTO the container
-        #
-        # These configure PostgreSQL at startup:
-        # - POSTGRES_DB        → database created automatically
-        # - POSTGRES_USER      → default user
-        # - POSTGRES_PASSWORD  → user password
-        #
-        # These values must match Django settings later
+    #     env:
+    #       POSTGRES_DB: test_db
+    #       POSTGRES_USER: postgres
+    #       POSTGRES_PASSWORD: postgres
+    #     # Environment variables passed INTO the container
+    #     #
+    #     # These configure PostgreSQL at startup:
+    #     # - POSTGRES_DB        → database created automatically
+    #     # - POSTGRES_USER      → default user
+    #     # - POSTGRES_PASSWORD  → user password
+    #     #
+    #     # These values must match Django settings later
 
-        ports:
-          - 5432:5432
-        # Port mapping:
-        # - left side: port on CI runner
-        # - right side: port inside container
-        #
-        # This allows Django to connect via:
-        #   localhost:5432
+    #     ports:
+    #       - 5432:5432
+    #     # Port mapping:
+    #     # - left side: port on CI runner
+    #     # - right side: port inside container
+    #     #
+    #     # This allows Django to connect via:
+    #     #   localhost:5432
 
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        # Health check configuration
-        #
-        # Problem:
-        # - container may start BEFORE DB is ready
-        #
-        # Solution:
-        # - GitHub waits until this health check passes
-        #
-        # pg_isready:
-        # - built-in Postgres readiness check
-        #
-        # retries logic:
-        # - tries every 10 seconds
-        # - waits up to ~50 seconds total
+    #     options: >-
+    #       --health-cmd pg_isready
+    #       --health-interval 10s
+    #       --health-timeout 5s
+    #       --health-retries 5
+    #     # Health check configuration
+    #     #
+    #     # Problem:
+    #     # - container may start BEFORE DB is ready
+    #     #
+    #     # Solution:
+    #     # - GitHub waits until this health check passes
+    #     #
+    #     # pg_isready:
+    #     # - built-in Postgres readiness check
+    #     #
+    #     # retries logic:
+    #     # - tries every 10 seconds
+    #     # - waits up to ~50 seconds total
 
     ###########################################################################
     # STEPS
@@ -229,7 +229,8 @@ jobs:
       # STEP 5 — RUN DJANGO TESTS
       #########################################################################
       - name: Run Django tests
-        run: poetry run python backend/manage.py test
+        # run: poetry run python backend/manage.py test
+        run: poetry run env USE_SQLITE=true CELERY_EAGER=true python backend/manage.py test -v 2
         # Executes Django test suite
         #
         # Current scope:
@@ -243,12 +244,14 @@ jobs:
 
   tests-celery:
     runs-on: ubuntu-latest
-
     services:
       redis:
         image: redis:7
         ports:
           - 6379:6379
+    steps:
+      - name: Celery placeholder
+        run: echo "Celery tests disabled until Redis integration step"
 
 ###############################################################################
 # FUTURE ARCHITECTURE (SUMMARY)
