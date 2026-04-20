@@ -12,8 +12,11 @@ Django's command-line utility for administrative tasks.
 # Ensure project root is in Python path.
 # Note: The relative path of this module is <.../distributed-ai-demo/backend/manage.py>.
 BASE_DIR = Path(__file__).resolve().parent  # <.../distributed-ai-demo/backend/>
-PROJECT_ROOT = BASE_DIR.parent  # <.../distributed-ai-demo/>
-sys.path.insert(0, str(PROJECT_ROOT))
+
+# Ensure BOTH are on path:
+# - /app → allows import backend.*
+# - /app/backend → optional direct module access
+sys.path.insert(0, str(BASE_DIR))
 
 
 def main():
@@ -23,7 +26,7 @@ def main():
     This function is automatically called when running `python manage.py <command>`.
 
     Flow:
-    1. Ensure DJANGO_SETTINGS_MODULE is set to 'backend.settings'
+    1. Ensure DJANGO_SETTINGS_MODULE is set to 'backend.config.settings'
     2. Import Django's execute_from_command_line
     3. If import fails, raise informative ImportError
     4. Pass sys.argv to Django for CLI execution
@@ -48,8 +51,9 @@ def main():
     None: Executes the requested Django command
     """
 
-    # Ensure Django settings module is defined
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.backend.settings")
+    # Set before Django to avoid setup/import side effects.
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.config.settings")
+    os.environ.setdefault("TEST_RUNNER", "django.test.runner.DiscoverRunner")
 
     try:
         from django.core.management import execute_from_command_line

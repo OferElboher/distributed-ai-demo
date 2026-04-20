@@ -1,6 +1,6 @@
 # Use official lightweight Python image.
 # "slim" keeps image small while still Debian-based (easy debugging).
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 
 # Prevent Python from writing .pyc files.
@@ -30,19 +30,30 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 
-# Copy dependency file first.
-# This allows Docker layer caching:
-# Dependencies won't reinstall unless requirements.txt changes.
-COPY requirements.txt .
+# # Copy dependency file first.
+# # This allows Docker layer caching:
+# # Dependencies won't reinstall unless requirements.txt changes.
+# # Notice: This should be commented-out in case of a repo that uses Poetry, which gets the dependencies from <pyproject.toml> and <poetry.lock>, and not from <requirements.txt>.
+# COPY requirements.txt .
 
 
 # Install Python dependencies.
-# --no-cache-dir reduces image size.
-RUN pip install --no-cache-dir -r requirements.txt
-
+# Parameter "--no-cache-dir" reduces image size.
+# Notice: This should be suited according to whether the repo uses Poetry, which gets the dependencies from <pyproject.toml> and <poetry.lock>, and not from <requirements.txt>.
+# In case:
+# - <requirements.txt> is used:
+# RUN pip install --no-cache-dir -r requirements.txt
+# - Poetry is used:
+#   - Copy dependency definitions.
+COPY pyproject.toml poetry.lock ./
+#   - Install Poetry,
+RUN pip install poetry
+#   - Install dependencies.
+RUN poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi
 
 # Copy entire project into container.
 # Done AFTER installing dependencies for caching efficiency.
+# Notice: This must suit the current context (see services.backend.build.context in <infra/docker/docker-compose.yml>).
 COPY . .
 
 

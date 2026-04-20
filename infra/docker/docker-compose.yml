@@ -63,17 +63,37 @@ services:
 
   # Runs Django Backend (REST API).
   backend:
-    # Build Docker image from <../../backend/Dockerfile>.
+
+    # Build Docker  from <../../backend/Dockerfile>.
     build:
-      context: ../../backend
+
+      # Set the context to directory distributed-ai-demo, because Docker thinks it is distributed-ai-demo/backend/backend.
+      context: ../../
+
       # Set the Dockerfile path relative to the build context (NOT relative to <docker-compose.yml>!).
-      dockerfile: ../infra/docker/Dockerfile
+      dockerfile: infra/docker/Dockerfile
 
     # Set an explicit container name (instead of auto-generated).
     # This makes logs, debugging, and networking clearer, as without this, Docker auto-generates rather complex container names (e.g., <distributed-ai-demo-backend-1>).
     container_name: backend
 
-    # Load environment-specific configuration file.
+    # Set working directory (=where the commands run and how relative paths resolve) to a value that suits Docker, that naturally considers "backend" as the working directory ("app"), so that manage.py is directly runnable.
+    # Python imports (backend.settings, backend.urls) work because /app is on PYTHONPATH.
+    working_dir: /app
+
+    volumes:
+      # Mount project into /app so Django modules are importable.
+      # Use for this purpose a value that suits Docker, that naturally considers "backend" as the working directory ("app").
+      # Set working directory to a value that suits Docker, so that manage.py is directly runnable.
+      # Python imports (backend.settings) work because /app is on PYTHONPATH.
+      - ../../:/app
+
+    ports:
+      # Expose backend to host machine via port 8000.
+      # Map host port 8000 → container port 8000, in order to allow users to access the backend from their browser using the URL "http://localhost:8000".
+      - "8000:8000"
+
+    # Load environment-specific configuration file (i.e., the suitable environment variables) into the container, so that Django may start.
     # ${ENVIRONMENT:-dev} means: use ENVIRONMENT variable if exists, or otherwise default to "dev".
     # Examples:
     #   ENVIRONMENT=dev     -> .env.dev
@@ -83,14 +103,31 @@ services:
       - ../../backend/.env.${ENVIRONMENT:-dev}
 
     environment:
-      DJANGO_SETTINGS_MODULE: backend.settings
+      # Tell Django which settings module to use.
+      # Required for ANY Django execution outside <manage.py> (e.g., python -c, Celery, Kafka workers, gunicorn): without it, Django cannot load configuration and will fail with "ModuleNotFoundError: backend.settings".
+      # Point to <backend/backend/settings/__init__.py>, which should dynamically select the correct environment, dev/staging/prod, based on variable ENVIRONMENT.
+      DJANGO_SETTINGS_MODULE: backend.config.settings
+      # Extend Python module search path inside the container.
+      # Value "/app" explained"
+      # - With the following container structure:
+      #   /app
+      #     └── backend/
+      #           ├── backend/        ← Django project package (settings, urls, wsgi)
+      #           ├── core/           ← app
+      #           └── health/         ← app
+      #   The value "/app" allows Python to resolve:
+      #   -  backend.config.settings    ← Django settings module
+      #   -  backend.core               ← core app
+      #   -  backend.health             ← health app
+      #   Because:
+      #   - /app is the root
+      #   - "backend" is the top-level package
+      #   - everything is imported relative to it
+      PYTHONPATH: /app
 
-    ports:
-      # Expose backend to host machine via port 8000.
-      # Map host port 8000 → container port 8000, in order to allow users to access the backend from their browser using the URL "http://localhost:8000".
-      - "8000:8000"
 
     # Start this service only after starting the following ones and verifying their health, as it depends on them.
+    # Notice: This DOES NOT guarantee readiness, only the startup order!
     depends_on:
       - postgres
       - redis
@@ -108,8 +145,10 @@ services:
     # Development server.
     # Apply migrations automatically, and only then start the Django dev server.
     # "sh -c" allows chaining multiple commands.
+    # "&&" means "run second only if first succeeds" (i.e., apply DB migrations, and only after it succeeds start Django server).
     command: >
       sh -c "
+        cd /app/backend &&
         python manage.py migrate &&
         python manage.py runserver 0.0.0.0:8000
       "
@@ -119,13 +158,21 @@ services:
     # Improves resiliency in staging & production.
     restart: unless-stopped
 
-    # Health check (see "Healthcheck" above).
+    # Perform health check (see "Healthcheck" above).
     # Note: The original healthcheck tried the url "/" (or "http://localhost:8000/") and expected "HTTP 200 OK", but "/" is not defined, so Django returned "GET / → 404", what made Docker mark it as "unhealthy (ExitCode 22)".
     healthcheck:
+
+      # Paremeter "-f" means "fail if HTTP isn't 200".
       # test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+
+      # Recheck every 10 seconds until succeeds.
       interval: 10s
+
+      # Fail if no response in 5 seconds.
       timeout: 5s
+
+      # Consider unhealthy and stop rechecking in case of 5 failures.
       retries: 5
 
   # Kafka Consumer — Kafka Events Reader and Celery Tasks Dispatcher

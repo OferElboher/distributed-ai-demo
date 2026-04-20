@@ -7,6 +7,10 @@ import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
 
 
+# Debug off by default.
+# Overriden by the settings file of current configuration (<dev.py>/<staging.py>/<prod.py>).
+DEBUG = False
+
 # BASE_DIR: root of the backend project.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -45,13 +49,8 @@ SECRET_KEY = os.getenv(
     "DJANGO_SECRET_KEY", "dev-insecure-secret-key"
 )  # Sample real world secret key: "django-insecure-0^m&-j-(eapfa@f#a9eyl&wp8*44cyks^((-eqblemye7j6+%9"
 
-# Debug mode.
-# Along development set True in order to show detailed error pages.
-# In staging & production unset using an environment variable (unsetting prevents the display of detailed error pages).
-# (See further info at "Environment configuration" above.)
-DEBUG = os.getenv("DEBUG", "False" if IS_STAGING or IS_PROD else "True") == "True"
-
 # Hosts allowed to connect, that is, a list of hostnames or IP addresses that Django will accept HTTP requests from.
+# Overriden by the settings file of current configuration (<dev.py>/<staging.py>/<prod.py>).
 # When DEBUG is True, an empty list only allows a limited set of development-related hosts (e.g., localhost, 127.0.0.1, api.company.com).
 # If DEBUG is False, an empty list will prevent the application from serving any requests not using those specific hosts.
 # Django raises a DisallowedHost error (400 response) for incoming requests from non-allowed hosts.
@@ -95,7 +94,7 @@ MIDDLEWARE = [
 # 'xxx.urls' refers to the Python module xxx/urls.py.
 # In other words, it tells Django where the URL patterns live.
 # Django will import this module, and look for a variable called urlpatterns, the list of all URL patterns for the project.
-ROOT_URLCONF = "backend.backend.urls"
+ROOT_URLCONF = "backend.config.urls"
 
 # Templates configuration.
 # A list of template engine configurations.
@@ -123,7 +122,7 @@ TEMPLATES = [
 ]
 
 # WSGI entrypoint: used in production deployment to run the API layer.
-WSGI_APPLICATION = "backend.wsgi.application"
+WSGI_APPLICATION = "backend.config.wsgi.application"
 
 # Database configuration.
 # PostgreSQL: structured storage
@@ -178,7 +177,8 @@ USE_I18N = True
 USE_TZ = True
 
 # Static files (CSS, JavaScript, Images).
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+STATIC_ROOT = "/app/staticfiles"
 
 # RabbitMQ configuration.
 # RabbitMQ credentials and vhost.

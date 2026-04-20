@@ -44,6 +44,110 @@ on:
 ###############################################################################
 jobs:
 
+  settings-check:
+    name: Settings Validation
+    runs-on: ubuntu-latest
+
+    # ------------------------------------------------------------------
+    # PURPOSE
+    # ------------------------------------------------------------------
+    # This job verifies that Django settings are correctly resolved
+    # for ALL supported environments: dev, staging, and prod.
+    #
+    # It ensures:
+    # - The correct settings module is loaded (backend.config.settings)
+    # - ENVIRONMENT switching works (via ENVIRONMENT env var)
+    # - dev uses DEBUG=True
+    # - staging/prod use DEBUG=False
+    # - ALLOWED_HOSTS is valid
+    #
+    # It matters, because without it:
+    # - Misconfigured settings may only fail at runtime
+    # - Production may accidentally run with DEBUG=True (critical risk)
+    # - CI could pass while deployment is broken
+    #
+    # This job FAILS FAST before any tests or builds.
+
+    steps:
+
+      # ------------------------------------------------------------------
+      # Step 1 — Checkout repository
+      # ------------------------------------------------------------------
+      # actions/checkout@v4 is an official GitHub Action that:
+      # - Initializes the CI workspace with project code: Clones the repository into the CI runner
+      # - Makes all project files available to subsequent steps
+      # Version v4, the latest stable major version, includes performance and security improvements.
+      #
+      # WITHOUT THIS STEP:
+      # - Docker build would fail (no source code)
+      # - Scripts (e.g., check_settings.py) would not exist
+      - uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # Step 2 — Build backend image
+      # ------------------------------------------------------------------
+      # Builds the Docker image exactly as used in runtime and CI.
+      # This guarantees:
+      # - Correct PYTHONPATH (/app)
+      # - Correct working directory
+      # - Same environment as production containers
+      #
+      # Prevents "works locally but not in container" issues.
+      - name: Build backend
+        run: docker compose -f infra/docker/docker-compose.yml build backend
+
+      # ------------------------------------------------------------------
+      # Step 3 — Validate DEV environment
+      # ------------------------------------------------------------------
+      # Runs Django with ENVIRONMENT=dev
+      #
+      # Expected:
+      # - DEBUG = True
+      # - ALLOWED_HOSTS permissive
+      #
+      # Uses:
+      # - backend/scripts/check_settings.py
+      #
+      # The script imports Django settings and asserts correctness.
+      - name: Validate DEV
+        run: |
+          docker compose -f infra/docker/docker-compose.yml run --rm \
+          -e ENVIRONMENT=dev backend \
+          python backend/scripts/check_settings.py
+
+      # ------------------------------------------------------------------
+      # Step 4 — Validate STAGING environment
+      # ------------------------------------------------------------------
+      # Runs Django with ENVIRONMENT=staging
+      #
+      # Expected:
+      # - DEBUG = False
+      # - Production-like constraints
+      #
+      # Ensures staging behaves like a safe pre-production environment.
+      - name: Validate STAGING
+        run: |
+          docker compose -f infra/docker/docker-compose.yml run --rm \
+          -e ENVIRONMENT=staging backend \
+          python backend/scripts/check_settings.py
+
+      # ------------------------------------------------------------------
+      # Step 5 — Validate PROD environment
+      # ------------------------------------------------------------------
+      # Runs Django with ENVIRONMENT=prod
+      #
+      # Expected:
+      # - DEBUG = False (critical requirement)
+      # - Production-safe configuration
+      #
+      # This is the most important validation:
+      # it prevents dangerous production misconfiguration.
+      - name: Validate PROD
+        run: |
+          docker compose -f infra/docker/docker-compose.yml run --rm \
+          -e ENVIRONMENT=prod backend \
+          python backend/scripts/check_settings.py
+
   tests:
 
     ###########################################################################
@@ -54,6 +158,26 @@ jobs:
     # - clean environment every run
     # - reproducible builds
     # - includes common tooling
+
+    ###########################################################################
+    # DEPENDENCY: settings-check
+    ###########################################################################
+    # This job depends on the successful completion of "settings-check".
+    #
+    # Meaning:
+    # - This job WILL NOT RUN if settings-check fails
+    # - Guarantees all environments (dev/staging/prod) are valid before continuing
+    #
+    # WHY:
+    # - Prevents running tests/builds with broken Django configuration
+    # - Avoids wasting CI time on jobs that are guaranteed to fail later
+    # - Enforces "fail fast" principle in pipeline design
+    #
+    # EXAMPLE FAILURE PREVENTED:
+    # - Wrong DJANGO_SETTINGS_MODULE
+    # - DEBUG=True in production
+    # - Missing env variables
+    needs: settings-check
 
     # ###########################################################################
     # # SERVICES — POSTGRESQL

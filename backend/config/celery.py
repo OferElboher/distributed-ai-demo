@@ -30,7 +30,7 @@ from celery import Celery
 
 # Set the default Django settings module for the Celery program
 # Ensures that Django configuration is loaded when Celery starts
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.config.settings")
 
 # Create a Celery instance named after the Django project
 # This instance represents the Celery app used for all tasks
