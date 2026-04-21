@@ -97,55 +97,126 @@ jobs:
         run: docker compose -f infra/docker/docker-compose.yml build backend
 
       # ------------------------------------------------------------------
-      # Step 3 — Validate DEV environment
+      # Step 3 — Create .env.dev for CI
       # ------------------------------------------------------------------
-      # Runs Django with ENVIRONMENT=dev
+      # Create <backend/.env.dev> dynamically as CI runners do NOT have local .env files, while the docker-compose expects "backend/.env.${ENVIRONMENT}".
+      # This mirrors local development configuration.
       #
-      # Expected:
-      # - DEBUG = True
-      # - ALLOWED_HOSTS permissive
+      # NOTE:
+      # - Safe because values are non-sensitive (dev only)
+      # - Production will use secrets instead
+      - name: Create backend/.env.dev for CI
+        run: |
+          cat <<EOF > backend/.env.dev
+ENVIRONMENT=dev
+
+DJANGO_SECRET_KEY=dev-secret
+ALLOWED_HOSTS=localhost,127.0.0.1
+
+POSTGRES_DB=demo
+POSTGRES_USER=demo
+POSTGRES_PASSWORD=demo
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+
+RABBITMQ_DEFAULT_USER=demo
+RABBITMQ_DEFAULT_PASSWORD=demo
+RABBITMQ_VHOST=/dev
+
+SENTRY_ENABLED=True
+SENTRY_DSN=https://c9e64c9d09cb5e6cba3507d180e373b5@o4511104766246912.ingest.us.sentry.io/4511104768933888
+
+KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/1
+EOF
+
+      # ------------------------------------------------------------------
+      # Step 4 — Create .env.staging for CI
+      # ------------------------------------------------------------------
+      # Create <backend/.env.staging> dynamically as CI runners do NOT have local .env files, while the docker-compose expects "backend/.env.${ENVIRONMENT}".
+      # This mirrors local staging configuration.
+      - name: Create backend/.env.staging for CI
+        run: |
+          cat <<EOF > backend/.env.staging
+ENVIRONMENT=staging
+DJANGO_SECRET_KEY=staging-secret
+ALLOWED_HOSTS=localhost
+EOF
+
+      # ------------------------------------------------------------------
+      # Step 5 — Create .env.prod for CI
+      # ------------------------------------------------------------------
+      # Create <backend/.env.prod> dynamically as CI runners do NOT have local .env files, while the docker-compose expects "backend/.env.${ENVIRONMENT}".
+      # This mirrors local prod configuration.
+      - name: Create backend/.env.prod for CI
+        run: |
+          cat <<EOF > backend/.env.prod
+ENVIRONMENT=prod
+DJANGO_SECRET_KEY=prod-secret
+ALLOWED_HOSTS=localhost
+EOF
+
+      # ------------------------------------------------------------------
+      # Step 6 — Validate DEV environment
+      # ------------------------------------------------------------------
+      # The script imports Django settings and asserts their correctness using <backend/scripts/check_settings.py>.
       #
-      # Uses:
-      # - backend/scripts/check_settings.py
+      # Runs Django with "ENVIRONMENT=dev".
+      # ENVIRONMENT is passed via GitHub Actions "env:" block since it must exist at the docker-compose evaluation time.
+      # This way docker-compose correctly resolves <.env.dev>, and the CI behaves like local Docker execution.
+      # It may not be passed via the docker-compose "-e" flag because our docker-compose, <infra/docker/docker-compose.yml>",
+      # resolves env_file paths by itself, i.e., BEFORE container runtime, by using "../../backend/.env.${ENVIRONMENT:-dev}".
+      # If passed via "-e", it is ONLY available inside the container, NOT during docker-compose parsing, what leads to "env file not found" error in CI.
       #
-      # The script imports Django settings and asserts correctness.
+      # Expected: "DEBUG = True", ALLOWED_HOSTS permissive  (see in <backend/config/settings/dev.py>).
       - name: Validate DEV
+        env:
+          ENVIRONMENT: dev
         run: |
           docker compose -f infra/docker/docker-compose.yml run --rm \
-          -e ENVIRONMENT=dev backend \
+          backend \
           python backend/scripts/check_settings.py
 
       # ------------------------------------------------------------------
-      # Step 4 — Validate STAGING environment
+      # Step 7 — Validate STAGING environment
       # ------------------------------------------------------------------
-      # Runs Django with ENVIRONMENT=staging
+      # The script imports Django settings and asserts their correctness using <backend/scripts/check_settings.py>.
       #
-      # Expected:
-      # - DEBUG = False
-      # - Production-like constraints
+      # Runs Django with "ENVIRONMENT=staging".
+      # ENVIRONMENT is passed via GitHub Actions "env:" block since it must exist at the docker-compose evaluation time.
+      # This way docker-compose correctly resolves <.env.staging>, and the CI uses the explicitly set ENVIRONMENT, does not fallback to a default value by using "../../backend/.env.${ENVIRONMENT:-dev}", and behaves like local Docker execution.
+      # It is not passed via the -e flag because docker-compose, <infra/docker/docker-compose.yml>, resolves env_file paths independently at compose-parsing time (before container startup), using the expression ""../../backend/.env.${ENVIRONMENT:-dev}"" as a fallback.
+      # If passed via "-e", it is ONLY available inside the container, NOT during docker-compose parsing, what leads to "env file not found" error in CI.
       #
-      # Ensures staging behaves like a safe pre-production environment.
+      # Expected: "DEBUG = False", ALLOWED_HOSTS permissive  (see in <backend/config/settings/staging.py>).
       - name: Validate STAGING
+        env:
+          ENVIRONMENT: staging
         run: |
           docker compose -f infra/docker/docker-compose.yml run --rm \
-          -e ENVIRONMENT=staging backend \
+          backend \
           python backend/scripts/check_settings.py
 
       # ------------------------------------------------------------------
-      # Step 5 — Validate PROD environment
+      # Step 8 — Validate PROD environment
       # ------------------------------------------------------------------
-      # Runs Django with ENVIRONMENT=prod
+      # The script imports Django settings and asserts their correctness using <backend/scripts/check_settings.py>.
       #
-      # Expected:
-      # - DEBUG = False (critical requirement)
-      # - Production-safe configuration
+      # Runs Django with "ENVIRONMENT=prod".
+      # ENVIRONMENT is passed via GitHub Actions "env:" block since it must exist at the docker-compose evaluation time.
+      # This way docker-compose correctly resolves <.env.prod>, and the CI uses the explicitly set ENVIRONMENT, does not fallback to a default value by using "../../backend/.env.${ENVIRONMENT:-dev}", and behaves like local Docker execution.
+      # It is not passed via the -e flag because docker-compose, <infra/docker/docker-compose.yml>, resolves env_file paths independently at compose-parsing time (before container startup), using the expression ""../../backend/.env.${ENVIRONMENT:-dev}"" as a fallback.
+      # If passed via "-e", it is ONLY available inside the container, NOT during docker-compose parsing, what leads to "env file not found" error in CI.
       #
-      # This is the most important validation:
-      # it prevents dangerous production misconfiguration.
+      # Expected: "DEBUG = False", ALLOWED_HOSTS permissive  (see in <backend/config/settings/prod.py>).
       - name: Validate PROD
+        env:
+          ENVIRONMENT: prod
         run: |
           docker compose -f infra/docker/docker-compose.yml run --rm \
-          -e ENVIRONMENT=prod backend \
+          backend \
           python backend/scripts/check_settings.py
 
   tests:
