@@ -71,7 +71,7 @@ jobs:
     steps:
 
       # ------------------------------------------------------------------
-      # Step 1 — Checkout repository
+      # Checkout repository
       # ------------------------------------------------------------------
       # actions/checkout@v4 is an official GitHub Action that:
       # - Initializes the CI workspace with project code: Clones the repository into the CI runner
@@ -84,7 +84,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # ------------------------------------------------------------------
-      # Step 2 — Build backend image
+      # Build backend image
       # ------------------------------------------------------------------
       # Builds the Docker image exactly as used in runtime and CI.
       # This guarantees:
@@ -97,7 +97,7 @@ jobs:
         run: docker compose -f infra/docker/docker-compose.yml build backend
 
       # ------------------------------------------------------------------
-      # Step 3 — Create .env.dev for CI
+      # Create <.env.dev> for CI
       # ------------------------------------------------------------------
       # Create <backend/.env.dev> dynamically as CI runners do NOT have local .env files, while the docker-compose expects "backend/.env.${ENVIRONMENT}".
       # This mirrors local development configuration.
@@ -133,7 +133,7 @@ CELERY_RESULT_BACKEND=redis://redis:6379/1
 EOF
 
       # ------------------------------------------------------------------
-      # Step 4 — Create .env.staging for CI
+      # Create <.env.staging> for CI
       # ------------------------------------------------------------------
       # Create <backend/.env.staging> dynamically as CI runners do NOT have local .env files, while the docker-compose expects "backend/.env.${ENVIRONMENT}".
       # This mirrors local staging configuration.
@@ -141,25 +141,31 @@ EOF
         run: |
           cat <<EOF > backend/.env.staging
 ENVIRONMENT=staging
+
 DJANGO_SECRET_KEY=staging-secret
-ALLOWED_HOSTS=localhost
+ALLOWED_HOSTS=localhost,127.0.0.1
+
+POSTGRES_DB=staging_db
+POSTGRES_USER=staging_user
+POSTGRES_PASSWORD=staging_secret
+POSTGRES_HOST=staging-db
+POSTGRES_PORT=5432
+
+RABBITMQ_DEFAULT_USER=staging_user
+RABBITMQ_DEFAULT_PASSWORD=staging_secret
+RABBITMQ_VHOST=/staging
+
+SENTRY_ENABLED=True
+SENTRY_DSN=https://c9e64c9d09cb5e6cba3507d180e373b5@o4511104766246912.ingest.us.sentry.io/4511104768933888
+
+KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/1
 EOF
 
       # ------------------------------------------------------------------
-      # Step 5 — Create .env.prod for CI
-      # ------------------------------------------------------------------
-      # Create <backend/.env.prod> dynamically as CI runners do NOT have local .env files, while the docker-compose expects "backend/.env.${ENVIRONMENT}".
-      # This mirrors local prod configuration.
-      - name: Create backend/.env.prod for CI
-        run: |
-          cat <<EOF > backend/.env.prod
-ENVIRONMENT=prod
-DJANGO_SECRET_KEY=prod-secret
-ALLOWED_HOSTS=localhost
-EOF
-
-      # ------------------------------------------------------------------
-      # Step 6 — Validate DEV environment
+      # Validate DEV environment
       # ------------------------------------------------------------------
       # The script imports Django settings and asserts their correctness using <backend/scripts/check_settings.py>.
       #
@@ -170,7 +176,7 @@ EOF
       # resolves env_file paths by itself, i.e., BEFORE container runtime, by using "../../backend/.env.${ENVIRONMENT:-dev}".
       # If passed via "-e", it is ONLY available inside the container, NOT during docker-compose parsing, what leads to "env file not found" error in CI.
       #
-      # Expected: "DEBUG = True", ALLOWED_HOSTS permissive  (see in <backend/config/settings/dev.py>).
+      # Expected: "DEBUG = True".
       - name: Validate DEV
         env:
           ENVIRONMENT: dev
@@ -180,7 +186,7 @@ EOF
           python backend/scripts/check_settings.py
 
       # ------------------------------------------------------------------
-      # Step 7 — Validate STAGING environment
+      # Validate STAGING environment
       # ------------------------------------------------------------------
       # The script imports Django settings and asserts their correctness using <backend/scripts/check_settings.py>.
       #
@@ -190,7 +196,7 @@ EOF
       # It is not passed via the -e flag because docker-compose, <infra/docker/docker-compose.yml>, resolves env_file paths independently at compose-parsing time (before container startup), using the expression ""../../backend/.env.${ENVIRONMENT:-dev}"" as a fallback.
       # If passed via "-e", it is ONLY available inside the container, NOT during docker-compose parsing, what leads to "env file not found" error in CI.
       #
-      # Expected: "DEBUG = False", ALLOWED_HOSTS permissive  (see in <backend/config/settings/staging.py>).
+      # Expected: "DEBUG = False".
       - name: Validate STAGING
         env:
           ENVIRONMENT: staging
@@ -200,7 +206,7 @@ EOF
           python backend/scripts/check_settings.py
 
       # ------------------------------------------------------------------
-      # Step 8 — Validate PROD environment
+      # Validate PROD environment
       # ------------------------------------------------------------------
       # The script imports Django settings and asserts their correctness using <backend/scripts/check_settings.py>.
       #
@@ -210,7 +216,7 @@ EOF
       # It is not passed via the -e flag because docker-compose, <infra/docker/docker-compose.yml>, resolves env_file paths independently at compose-parsing time (before container startup), using the expression ""../../backend/.env.${ENVIRONMENT:-dev}"" as a fallback.
       # If passed via "-e", it is ONLY available inside the container, NOT during docker-compose parsing, what leads to "env file not found" error in CI.
       #
-      # Expected: "DEBUG = False", ALLOWED_HOSTS permissive  (see in <backend/config/settings/prod.py>).
+      # Expected: "DEBUG = False".
       - name: Validate PROD
         env:
           ENVIRONMENT: prod
@@ -319,147 +325,111 @@ EOF
     #     # - tries every 10 seconds
     #     # - waits up to ~50 seconds total
 
-    ###########################################################################
-    # STEPS
-    ###########################################################################
     steps:
 
       #########################################################################
-      # STEP 1 — CHECKOUT CODE
+      # Checkout code
       #########################################################################
       - name: Checkout repository
         uses: actions/checkout@v4
-        # Syntax: owner/repo@ref
-        #
-        # "actions/checkout" = official GitHub action
-        #
-        # "@v4" = version reference
-        #
-        # Explanation of @v4:
-        # - "v4" is a MAJOR version tag
-        # - Follows semantic versioning (MAJOR.MINOR.PATCH)
-        # - Resolves to latest 4.x.x release
-        #
-        # Behavior:
-        # - Includes bug fixes automatically
-        # - Avoids breaking changes (those require v5)
-        #
-        # Alternatives:
-        # - @v4.2.0   → exact version (fully pinned)
-        # - @main     → latest commit (NOT recommended)
-        # - @<SHA>    → exact commit (maximum security)
-        #
-        # Purpose:
-        # - clones repository into CI runner
-
+        # Clones repository into CI runner.
 
       #########################################################################
-      # STEP 2 — SETUP PYTHON
+      # Setup Python
       #########################################################################
       - name: Setup Python
         uses: actions/setup-python@v5
-        # "actions/setup-python" installs Python runtime
-        #
-        # "@v5":
-        # - latest version within major v5
-        # - safe updates (no breaking changes)
-
         with:
           python-version: "3.11"
-          # Python version to install
-          #
-          # Options:
-          # - "3.11"   → latest patch (recommended)
-          # - "3.11.7" → exact version
-          # - matrix    → multiple versions (future)
-
           cache: "pip"
-          # Enables caching of pip downloads
-          #
-          # Effect:
-          # - faster installs
-          # - Poetry benefits indirectly (uses pip)
-
+        # Installs Python runtime + enables pip caching.
 
       #########################################################################
-      # STEP 3 — INSTALL POETRY
+      # Install Poetry
       #########################################################################
       - name: Install Poetry
         run: pip install poetry
-        # Installs Poetry globally
-        #
-        # Alternative (future):
-        # - pipx install poetry (better isolation)
-
+        # Installs dependency manager.
 
       #########################################################################
-      # STEP 4 — INSTALL DEPENDENCIES
+      # Install dependencies
       #########################################################################
       - name: Install dependencies
         run: poetry install --no-root
-        # Installs dependencies from:
-        # - pyproject.toml
-        # - poetry.lock
-        #
-        # Behavior:
-        # - creates virtual environment
-        # - installs exact versions
-        #
-        # CRITICAL FLAG "--no-root" EXPLAINED
-        # -----------------------------------
-        # Flag "--no-root" prevents Poetry from trying to install this project as a Python package.
-        # Without this:
-        # - Poetry attempts "Installing current project"
-        # - Fails because this repo is NOT a Python package
-        # Why this project is not a package:
-        # - Django project (backend/)
-        # - distributed system (Celery, Kafka, workers)
-        # - no single importable root module
-        # Result:
-        # - installs dependencies ONLY
-        # - skips packaging step
-        # - prevents CI failure
+        # Installs Python dependencies only (not this package).
 
       #########################################################################
-      # STEP 5 — RUN DJANGO TESTS
+      # Build backend image
       #########################################################################
-      - name: Run Django tests
-        # run: poetry run python backend/manage.py test
+      - name: Build backend image
+        run: docker compose -f infra/docker/docker-compose.yml build backend
+        # Ensures Docker image exists before container-based tests.
+        #
+        # Required because:
+        # - Tests are executed inside the container.
+        # - Guarantees CI == runtime parity.
+
+      #########################################################################
+      # Run Django tests (host mode)
+      #########################################################################
+      - name: Run Django unit tests (host mode)
         run: poetry run env USE_SQLITE=true CELERY_EAGER=true python backend/manage.py test -v 2
-        # Executes Django test suite
+        # Fast unit test execution.
         #
-        # Current scope:
-        # - no external services
-        # - SQLite or default DB
+        # Scope:
+        # - No Docker.
+        # - No external services.
+        # - Pure Python/Django layer tests.
+
+      #########################################################################
+      # Run Django tests (Docker mode)
+      #########################################################################
+      - name: Run Django integration tests (docker mode)
+        run: |
+          docker compose -f infra/docker/docker-compose.yml run --rm \
+          -e USE_SQLITE=true \
+          -e CELERY_EAGER=true \
+          backend \
+          python backend/manage.py test -v 2
+        # Full integration execution inside container.
         #
-        # Future:
-        # - split into layers
-        # - add Postgres
-        # - add integration tests
+        # Scope:
+        # - Docker runtime environment.
+        # - Identical to production container behavior.
 
   tests-celery:
     runs-on: ubuntu-latest
+    # GitHub-hosted runner environment
+    #
+    # Purpose:
+    # - Isolated job for future Celery integration tests.
+    # - Ensures async task system can be validated independently.
+
     services:
       redis:
         image: redis:7
+        # Redis service container used as broker/backend dependency for Celery.
+        # Provides message broker for Celery tasks.
+
         ports:
           - 6379:6379
+          # Exposes Redis on default port.
+          #
+          # Note:
+          # - Makes Redis available to CI job containers via localhost.
+          # - Required for Celery worker connectivity tests.
+
     steps:
       - name: Celery placeholder
         run: echo "Celery tests disabled until Redis integration step"
-
-###############################################################################
-# FUTURE ARCHITECTURE (SUMMARY)
-###############################################################################
-#
-# Planned jobs:
-#
-# lint → unit-tests → postgres-tests → celery-tests → kafka-tests → docker-build
-#
-# Using:
-#   needs:
-#
-# Ensures:
-# - fail-fast behavior
-# - clear debugging
-###############################################################################
+        # Placeholder step for future Celery test execution
+        #
+        # Purpose:
+        # - Marks intentional omission of Celery test suite.
+        # - Prevents CI failure while async infrastructure is still evolving.
+        #
+        # Future upgrade:
+        # - Replace with:
+        #   - Celery worker startup
+        #   - task execution tests
+        #   - Redis-backed queue validation

@@ -1,3 +1,10 @@
+# This module is imported by Django when the settings module is loaded.
+# It's being run by Django:
+# - Every time Django starts a process that needs settings, i.e., DJANGO_SETTINGS_MODULE.
+# - Upon the execution of django.setup(), which again triggers the import of the settings module chain, including <base.py>.
+# - On Docker container startup (if Django runs inside container).
+
+
 from dotenv import load_dotenv
 import os
 from pathlib import Path
@@ -46,7 +53,7 @@ load_dotenv(
 # The staging & production secret key must never be stored in Git repositories, but loaded from environment variable instead.
 # (See further info at "Environment configuration" above.)
 SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY", "dev-insecure-secret-key"
+    "DJANGO_SECRET_KEY", "dev-secret"
 )  # Sample real world secret key: "django-insecure-0^m&-j-(eapfa@f#a9eyl&wp8*44cyks^((-eqblemye7j6+%9"
 
 # Hosts allowed to connect, that is, a list of hostnames or IP addresses that Django will accept HTTP requests from.
