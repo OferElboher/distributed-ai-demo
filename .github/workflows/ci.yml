@@ -105,53 +105,95 @@ jobs:
       # NOTE:
       # - Safe because values are non-sensitive (dev only)
       # - Production will use secrets instead
-
+      # - Running "mkdir -p backend" ensures the <backend/> directory exists: Parameter "-p" means "create it if missing, do nothing if it already exists";
+      #   It was added because although the repo usually already contains <backend/> in GitHub Actions, if nevertheless something changes (path issues,
+      #   shallow checkout, etc.) or if someone refactors the repo later, then then ""> backend/.env.dev" will fail with "No such file or directory";
+      #   So "mkdir -p" is just defensive CI hardening.
       - name: Create backend/.env.dev for CI
         run: |
-          cat <<EOF > backend/.env.dev
-      ENVIRONMENT=dev
-      DJANGO_SECRET_KEY=dev-secret
-      ALLOWED_HOSTS=localhost,127.0.0.1
-      POSTGRES_DB=demo
-      POSTGRES_USER=demo
-      POSTGRES_PASSWORD=demo
-      POSTGRES_HOST=postgres
-      POSTGRES_PORT=5432
-      RABBITMQ_DEFAULT_USER=demo
-      RABBITMQ_DEFAULT_PASSWORD=demo
-      RABBITMQ_VHOST=/dev
-      SENTRY_ENABLED=True
-      SENTRY_DSN=https://...
-      KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      CELERY_BROKER_URL=redis://redis:6379/0
-      CELERY_RESULT_BACKEND=redis://redis:6379/1
-      EOF
+          mkdir -p backend
+          printf "%s\n" \
+            "ENVIRONMENT=dev" \
+            "DJANGO_SECRET_KEY=dev-secret" \
+            "ALLOWED_HOSTS=localhost,127.0.0.1" \
+            "POSTGRES_DB=demo" \
+            "POSTGRES_USER=demo" \
+            "POSTGRES_PASSWORD=demo" \
+            "POSTGRES_HOST=postgres" \
+            "POSTGRES_PORT=5432" \
+            "RABBITMQ_DEFAULT_USER=demo" \
+            "RABBITMQ_DEFAULT_PASSWORD=demo" \
+            "RABBITMQ_VHOST=/dev" \
+            "SENTRY_ENABLED=True" \
+            "SENTRY_DSN=https://..." \
+            "KAFKA_BOOTSTRAP_SERVERS=kafka:9092" \
+            "CELERY_BROKER_URL=redis://redis:6379/0" \
+            "CELERY_RESULT_BACKEND=redis://redis:6379/1" \
+          > backend/.env.dev
 
       # ------------------------------------------------------------------
       # Create <.env.staging> for CI
       # ------------------------------------------------------------------
       # Create <backend/.env.staging> dynamically as CI runners do NOT have local .env files, while the docker-compose expects "backend/.env.${ENVIRONMENT}".
       # This mirrors local staging configuration.
+      # NOTE:
+      # - Running "mkdir -p backend" ensures the <backend/> directory exists: Parameter "-p" means "create it if missing, do nothing if it already exists";
+      #   It was added because although the repo usually already contains <backend/> in GitHub Actions, if nevertheless something changes (path issues,
+      #   shallow checkout, etc.) or if someone refactors the repo later, then then ""> backend/.env.dev" will fail with "No such file or directory";
+      #   So "mkdir -p" is just defensive CI hardening.
       - name: Create backend/.env.staging for CI
         run: |
-          cat <<EOF > backend/.env.staging
-      ENVIRONMENT=staging
-      DJANGO_SECRET_KEY=staging-secret
-      ALLOWED_HOSTS=localhost,127.0.0.1
-      POSTGRES_DB=staging_db
-      POSTGRES_USER=staging_user
-      POSTGRES_PASSWORD=staging_secret
-      POSTGRES_HOST=staging-db
-      POSTGRES_PORT=5432
-      RABBITMQ_DEFAULT_USER=staging_user
-      RABBITMQ_DEFAULT_PASSWORD=staging_secret
-      RABBITMQ_VHOST=/staging
-      SENTRY_ENABLED=True
-      SENTRY_DSN=https://c9e64c9d09cb5e6cba3507d180e373b5@o4511104766246912.ingest.us.sentry.io/4511104768933888
-      KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      CELERY_BROKER_URL=redis://redis:6379/0
-      CELERY_RESULT_BACKEND=redis://redis:6379/1
-      EOF
+          mkdir -p backend
+          printf "%s\n" \
+            "ENVIRONMENT=staging" \
+            "DJANGO_SECRET_KEY=staging-secret" \
+            "ALLOWED_HOSTS=localhost,127.0.0.1" \
+            "POSTGRES_DB=staging_db" \
+            "POSTGRES_USER=staging_user" \
+            "POSTGRES_PASSWORD=staging_secret" \
+            "POSTGRES_HOST=staging-db" \
+            "POSTGRES_PORT=5432" \
+            "RABBITMQ_DEFAULT_USER=staging_user" \
+            "RABBITMQ_DEFAULT_PASSWORD=staging_secret" \
+            "RABBITMQ_VHOST=/staging" \
+            "SENTRY_ENABLED=True" \
+            "SENTRY_DSN=https://c9e64c9d09cb5e6cba3507d180e373b5@o4511104766246912.ingest.us.sentry.io/4511104768933888" \
+            "KAFKA_BOOTSTRAP_SERVERS=kafka:9092" \
+            "CELERY_BROKER_URL=redis://redis:6379/0" \
+            "CELERY_RESULT_BACKEND=redis://redis:6379/1" \
+          > backend/.env.staging
+
+      # ------------------------------------------------------------------
+      # Create <.env.prod> for CI
+      # ------------------------------------------------------------------
+      # Create <backend/.env.prod> dynamically as CI runners do NOT have local .env files, while the docker-compose expects "backend/.env.${ENVIRONMENT}".
+      # This mirrors local prod configuration.
+      # NOTE:
+      # - Running "mkdir -p backend" ensures the <backend/> directory exists: Parameter "-p" means "create it if missing, do nothing if it already exists";
+      #   It was added because although the repo usually already contains <backend/> in GitHub Actions, if nevertheless something changes (path issues,
+      #   shallow checkout, etc.) or if someone refactors the repo later, then then ""> backend/.env.dev" will fail with "No such file or directory";
+      #   So "mkdir -p" is just defensive CI hardening.
+      - name: Create backend/.env.prod for CI
+        run: |
+          mkdir -p backend
+          printf "%s\n" \
+            "ENVIRONMENT=prod" \
+            "DJANGO_SECRET_KEY=prod-secret" \
+            "ALLOWED_HOSTS=localhost,127.0.0.1" \
+            "POSTGRES_DB=prod_db" \
+            "POSTGRES_USER=prod_user" \
+            "POSTGRES_PASSWORD=prod_secret" \
+            "POSTGRES_HOST=prod-db" \
+            "POSTGRES_PORT=5432" \
+            "RABBITMQ_DEFAULT_USER=prod_user" \
+            "RABBITMQ_DEFAULT_PASSWORD=prod_secret" \
+            "RABBITMQ_VHOST=/prod" \
+            "SENTRY_ENABLED=True" \
+            "SENTRY_DSN=https://..." \
+            "KAFKA_BOOTSTRAP_SERVERS=kafka:9092" \
+            "CELERY_BROKER_URL=redis://redis:6379/0" \
+            "CELERY_RESULT_BACKEND=redis://redis:6379/1" \
+          > backend/.env.prod
 
       # ------------------------------------------------------------------
       # Validate DEV environment
