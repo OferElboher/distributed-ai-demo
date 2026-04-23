@@ -108,7 +108,9 @@ jobs:
       #
       # Prevents "works locally but not in container" issues.
       - name: Build backend
-        run: docker compose -f infra/docker/docker-compose.yml build backend
+        run: |
+          set -e
+          docker compose -f infra/docker/docker-compose.yml build backend
 
       # ------------------------------------------------------------------
       # Create <.env.dev> for CI
@@ -121,10 +123,11 @@ jobs:
       # - Production will use secrets instead
       # - Running "mkdir -p backend" ensures the <backend/> directory exists: Parameter "-p" means "create it if missing, do nothing if it already exists";
       #   It was added because although the repo usually already contains <backend/> in GitHub Actions, if nevertheless something changes (path issues,
-      #   shallow checkout, etc.) or if someone refactors the repo later, then then ""> backend/.env.dev" will fail with "No such file or directory";
+      #   shallow checkout, etc.) or if someone refactors the repo later, then ""> backend/.env.dev" will fail with "No such file or directory";
       #   So "mkdir -p" is just defensive CI hardening.
       - name: Create backend/.env.dev for CI
         run: |
+          set -e
           mkdir -p backend
           printf "%s\n" \
             "ENVIRONMENT=dev" \
@@ -139,7 +142,7 @@ jobs:
             "RABBITMQ_DEFAULT_PASSWORD=demo" \
             "RABBITMQ_VHOST=/dev" \
             "SENTRY_ENABLED=False" \
-            "SENTRY_DSN=" \
+            "SENTRY_DSN=disabled" \
             "KAFKA_BOOTSTRAP_SERVERS=kafka:9092" \
             "CELERY_BROKER_URL=redis://redis:6379/0" \
             "CELERY_RESULT_BACKEND=redis://redis:6379/1" \
@@ -153,7 +156,7 @@ jobs:
       # NOTE:
       # - Running "mkdir -p backend" ensures the <backend/> directory exists: Parameter "-p" means "create it if missing, do nothing if it already exists";
       #   It was added because although the repo usually already contains <backend/> in GitHub Actions, if nevertheless something changes (path issues,
-      #   shallow checkout, etc.) or if someone refactors the repo later, then then ""> backend/.env.dev" will fail with "No such file or directory";
+      #   shallow checkout, etc.) or if someone refactors the repo later, then ""> backend/.env.dev" will fail with "No such file or directory";
       #   So "mkdir -p" is just defensive CI hardening.
       - name: Create backend/.env.staging for CI
         run: |
@@ -171,7 +174,7 @@ jobs:
             "RABBITMQ_DEFAULT_PASSWORD=staging_secret" \
             "RABBITMQ_VHOST=/staging" \
             "SENTRY_ENABLED=True" \
-            "SENTRY_DSN=https://c9e64c9d09cb5e6cba3507d180e373b5@o4511104766246912.ingest.us.sentry.io/4511104768933888" \
+            "SENTRY_DSN=disabled" \
             "KAFKA_BOOTSTRAP_SERVERS=kafka:9092" \
             "CELERY_BROKER_URL=redis://redis:6379/0" \
             "CELERY_RESULT_BACKEND=redis://redis:6379/1" \
@@ -185,7 +188,7 @@ jobs:
       # # NOTE:
       # # - Running "mkdir -p backend" ensures the <backend/> directory exists: Parameter "-p" means "create it if missing, do nothing if it already exists";
       # #   It was added because although the repo usually already contains <backend/> in GitHub Actions, if nevertheless something changes (path issues,
-      # #   shallow checkout, etc.) or if someone refactors the repo later, then then ""> backend/.env.dev" will fail with "No such file or directory";
+      # #   shallow checkout, etc.) or if someone refactors the repo later, then ""> backend/.env.dev" will fail with "No such file or directory";
       # #   So "mkdir -p" is just defensive CI hardening.
       # - name: Create backend/.env.prod for CI
       #   run: |
@@ -214,11 +217,12 @@ jobs:
       # ------------------------------------------------------------------
       # The script imports Django settings and asserts their correctness using <backend/scripts/check_settings.py>.
       # Runs Django with "ENVIRONMENT=dev".
-      # ENVIRONMENT is passed into the container at runtime so Django loads the correct settings and docker-compose resolves: ""../../backend/.env.${ENVIRONMENT:-dev}"."
+      # ENVIRONMENT is passed into the container at runtime so Django loads the correct settings and docker-compose resolves: "../../backend/.env.${ENVIRONMENT:-dev}".
       # This ensures CI behaves like local Docker execution.
       # Expected: "DEBUG = True".
       - name: Validate DEV
         run: |
+          set -e
           docker compose -f infra/docker/docker-compose.yml run --rm \
           -e ENVIRONMENT=dev \
           backend \
@@ -229,11 +233,12 @@ jobs:
       # ------------------------------------------------------------------
       # The script imports Django settings and asserts their correctness using <backend/scripts/check_settings.py>.
       # Runs Django with "ENVIRONMENT=staging".
-      # ENVIRONMENT is passed into the container at runtime so Django loads the correct settings and docker-compose resolves: "../../backend/.env.${ENVIRONMENT:-dev}"."
+      # ENVIRONMENT is passed into the container at runtime so Django loads the correct settings and docker-compose resolves: "../../backend/.env.${ENVIRONMENT:-dev}".
       # This ensures CI behaves like local Docker execution.
       # Expected: "DEBUG = False".
       - name: Validate STAGING
         run: |
+          set -e
           docker compose -f infra/docker/docker-compose.yml run --rm \
           -e ENVIRONMENT=staging \
           backend \
@@ -255,6 +260,7 @@ jobs:
       #   env:
       #     ENVIRONMENT: prod
       #   run: |
+      #     set -e
       #     docker compose -f infra/docker/docker-compose.yml run --rm \
       #     backend \
       #     python backend/scripts/check_settings.py
@@ -404,7 +410,9 @@ jobs:
       # Run Django tests (host mode)
       #########################################################################
       - name: Run Django unit tests (host mode)
-        run: poetry run env USE_SQLITE=true CELERY_EAGER=true python manage.py test -v 2
+        run: |
+          set -e
+          poetry run env PYTHONPATH=. USE_SQLITE=true CELERY_EAGER=true python backend/manage.py test backend -v 2
         # Fast unit test execution.
         #
         # Scope:
@@ -425,11 +433,13 @@ jobs:
         env:
           ENVIRONMENT: dev
         run: |
+          set -e
           docker compose -f infra/docker/docker-compose.yml run --rm \
+          -e PYTHONPATH=/app/backend \
           -e USE_SQLITE=true \
           -e CELERY_EAGER=true \
           backend \
-          python manage.py test -v 2
+          python backend/manage.py test backend -v 2
 
         # Full integration execution inside container.
         #
