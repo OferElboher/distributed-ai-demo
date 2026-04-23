@@ -138,8 +138,8 @@ jobs:
             "RABBITMQ_DEFAULT_USER=demo" \
             "RABBITMQ_DEFAULT_PASSWORD=demo" \
             "RABBITMQ_VHOST=/dev" \
-            "SENTRY_ENABLED=True" \
-            "SENTRY_DSN=https://..." \
+            "SENTRY_ENABLED=False" \
+            "SENTRY_DSN=" \
             "KAFKA_BOOTSTRAP_SERVERS=kafka:9092" \
             "CELERY_BROKER_URL=redis://redis:6379/0" \
             "CELERY_RESULT_BACKEND=redis://redis:6379/1" \
@@ -203,7 +203,7 @@ jobs:
       #       "RABBITMQ_DEFAULT_PASSWORD=prod_secret" \
       #       "RABBITMQ_VHOST=/prod" \
       #       "SENTRY_ENABLED=True" \
-      #       "SENTRY_DSN=https://..." \
+      #       "SENTRY_DSN=https://c9e64c9d09cb5e6cba3507d180e373b5@o4511104766246912.ingest.us.sentry.io/4511104768933888" \
       #       "KAFKA_BOOTSTRAP_SERVERS=kafka:9092" \
       #       "CELERY_BROKER_URL=redis://redis:6379/0" \
       #       "CELERY_RESULT_BACKEND=redis://redis:6379/1" \
@@ -273,16 +273,13 @@ jobs:
     ###########################################################################
     # DEPENDENCY: settings-check
     ###########################################################################
-    # This job depends on the successful completion of "settings-check".
-    #
-    # Meaning:
-    # - This job WILL NOT RUN if settings-check fails
-    # - Guarantees all environments (dev/staging/prod) are valid before continuing
-    #
-    # WHY:
-    # - Prevents running tests/builds with broken Django configuration
-    # - Avoids wasting CI time on jobs that are guaranteed to fail later
-    # - Enforces "fail fast" principle in pipeline design
+    # This job:
+    # - Depends on the successful completion of "settings-check".
+    # - WILL NOT RUN if settings-check fails.
+    # - Guarantees all environments (dev/staging/prod) are valid before continuing.
+    # - Prevents running tests/builds with broken Django configuration.
+    # - Avoids wasting CI time on jobs that are guaranteed to fail later.
+    # - Enforces "fail fast" principle in pipeline design.
     #
     # EXAMPLE FAILURE PREVENTED:
     # - Wrong DJANGO_SETTINGS_MODULE
