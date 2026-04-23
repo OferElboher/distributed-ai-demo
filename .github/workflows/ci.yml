@@ -404,7 +404,7 @@ jobs:
       # Run Django tests (host mode)
       #########################################################################
       - name: Run Django unit tests (host mode)
-        run: poetry run env USE_SQLITE=true CELERY_EAGER=true python backend/manage.py test -v 2
+        run: poetry run env USE_SQLITE=true CELERY_EAGER=true python manage.py test -v 2
         # Fast unit test execution.
         #
         # Scope:
@@ -429,7 +429,7 @@ jobs:
           -e USE_SQLITE=true \
           -e CELERY_EAGER=true \
           backend \
-          python backend/manage.py test -v 2
+          python manage.py test -v 2
 
         # Full integration execution inside container.
         #
