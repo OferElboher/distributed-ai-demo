@@ -30,9 +30,9 @@ name: CI
 ###############################################################################
 # GLOBAL ENVIRONMENT VARIABLES
 ###############################################################################
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Enforce Node.js 24 for GitHub Actions (has no impact on Python/Django execution) to prevent warnings/failures, as GitHub is deprecating Node.js 20 (used by actions like checkout@v4).
+# env:
+#   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+#   # Enforce Node.js 24 for GitHub Actions (has no impact on Python/Django execution) to prevent warnings/failures, as GitHub is deprecating Node.js 20 (used by actions like checkout@v4).
 
   # ACTIONS_ALLOW_USE_UNSUPPORTED_NODE_VERSION: true
   # # Suppress strict enforcement of Node.js version compatibility, and allow workflows to continue running during migration window, this way prevent CI failures caused by upstream action metadata lag.
