@@ -30,11 +30,16 @@ name: CI
 ###############################################################################
 # GLOBAL ENVIRONMENT VARIABLES
 ###############################################################################
-# Enforce Node.js 24 for GitHub Actions.
-# Forces all JS-based actions to run on Node.js 24 (has no impact on Python/Django execution).
-# Prevents warnings/failures, as GitHub is deprecating Node.js 20 (used by actions like checkout@v4).
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Enforce Node.js 24 for GitHub Actions (has no impact on Python/Django execution) to prevent warnings/failures, as GitHub is deprecating Node.js 20 (used by actions like checkout@v4).
+
+  # ACTIONS_ALLOW_USE_UNSUPPORTED_NODE_VERSION: true
+  # # Suppress strict enforcement of Node.js version compatibility, and allow workflows to continue running during migration window, this way prevent CI failures caused by upstream action metadata lag.
+  # # Allow GitHub Actions to run legacy JavaScript-based actions (such as actions/checkout@v4) even when they depend on older Node.js runtimes (Node 20 in this case).
+  # # That's required as GitHub is deprecating Node.js 20 in Actions runners and forcing migration to Node.js 24.
+  # # During this transition period some widely used actions (e.g., actions/checkout@v4) still declare Node 20 compatibility, and without this flag, GitHub may treat the version mismatch as a hard failure instead of a warning.
+  # # This does NOT affect Python runtime, Docker builds, Django execution.
 
 ###############################################################################
 # TRIGGERS
@@ -208,20 +213,14 @@ jobs:
       # Validate DEV environment
       # ------------------------------------------------------------------
       # The script imports Django settings and asserts their correctness using <backend/scripts/check_settings.py>.
-      #
       # Runs Django with "ENVIRONMENT=dev".
-      # ENVIRONMENT is passed via GitHub Actions "env:" block since it must exist at the docker-compose evaluation time.
-      # This way docker-compose correctly resolves <.env.dev>, and the CI behaves like local Docker execution.
-      # It may not be passed via the docker-compose "-e" flag because our docker-compose, <infra/docker/docker-compose.yml>",
-      # resolves env_file paths by itself, i.e., BEFORE container runtime, by using "../../backend/.env.${ENVIRONMENT:-dev}".
-      # If passed via "-e", it is ONLY available inside the container, NOT during docker-compose parsing, what leads to "env file not found" error in CI.
-      #
+      # ENVIRONMENT is passed into the container at runtime so Django loads the correct settings and docker-compose resolves: ""../../backend/.env.${ENVIRONMENT:-dev}"."
+      # This ensures CI behaves like local Docker execution.
       # Expected: "DEBUG = True".
       - name: Validate DEV
-        env:
-          ENVIRONMENT: dev
         run: |
           docker compose -f infra/docker/docker-compose.yml run --rm \
+          -e ENVIRONMENT=dev \
           backend \
           python backend/scripts/check_settings.py
 
@@ -229,19 +228,14 @@ jobs:
       # Validate STAGING environment
       # ------------------------------------------------------------------
       # The script imports Django settings and asserts their correctness using <backend/scripts/check_settings.py>.
-      #
       # Runs Django with "ENVIRONMENT=staging".
-      # ENVIRONMENT is passed via GitHub Actions "env:" block since it must exist at the docker-compose evaluation time.
-      # This way docker-compose correctly resolves <.env.staging>, and the CI uses the explicitly set ENVIRONMENT, does not fallback to a default value by using "../../backend/.env.${ENVIRONMENT:-dev}", and behaves like local Docker execution.
-      # It is not passed via the -e flag because docker-compose, <infra/docker/docker-compose.yml>, resolves env_file paths independently at compose-parsing time (before container startup), using the expression ""../../backend/.env.${ENVIRONMENT:-dev}"" as a fallback.
-      # If passed via "-e", it is ONLY available inside the container, NOT during docker-compose parsing, what leads to "env file not found" error in CI.
-      #
+      # ENVIRONMENT is passed into the container at runtime so Django loads the correct settings and docker-compose resolves: "../../backend/.env.${ENVIRONMENT:-dev}"."
+      # This ensures CI behaves like local Docker execution.
       # Expected: "DEBUG = False".
       - name: Validate STAGING
-        env:
-          ENVIRONMENT: staging
         run: |
           docker compose -f infra/docker/docker-compose.yml run --rm \
+          -e ENVIRONMENT=staging \
           backend \
           python backend/scripts/check_settings.py
 
