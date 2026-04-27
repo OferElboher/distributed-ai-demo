@@ -109,6 +109,13 @@ mongoose
  */
 const PORT = process.env.PORT || 3000;
 
+// Test endpoint for end-to-end verification (frontend → backend → request parsing)
+// Used in demo to confirm API receives and returns JSON correctly
+app.post("/test", (req, res) => {
+  console.log("TEST HIT:", req.body);
+  res.json({ ok: true, received: req.body });
+});
+
 /**
  * Starts HTTP server
  */
