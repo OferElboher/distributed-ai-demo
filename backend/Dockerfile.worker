@@ -1,0 +1,83 @@
+###############################################################################
+# Suspicious Email Triage - Worker Container
+#
+# PURPOSE:
+# This container runs the asynchronous background worker responsible for:
+#
+# - consuming jobs from Redis (BullMQ queue)
+# - executing email analysis logic (rules / heuristics / LLM)
+# - writing results back to MongoDB
+#
+# ARCHITECTURE ROLE:
+#
+#   Backend API  →  Redis Queue  →  Worker (this container)  →  MongoDB
+#
+# KEY RESPONSIBILITY:
+# - decouples heavy processing from HTTP request lifecycle
+# - enables scalable async processing of email reviews
+# - ensures API remains fast and non-blocking
+#
+# SCALABILITY MODEL:
+# - can be horizontally scaled (multiple worker containers)
+# - each worker independently consumes queue jobs
+###############################################################################
+FROM node:18
+
+###############################################################################
+# Working directory inside container
+###############################################################################
+WORKDIR /app/backend
+
+###############################################################################
+# Dependency installation layer (Docker caching optimization)
+#
+# CONCEPT: Docker Layer Caching
+#
+# Docker caches each build step as a layer. If a layer does not change,
+# it is reused instead of being rebuilt.
+#
+# WHY ORDER MATTERS:
+#
+# If we copied full source code BEFORE installing dependencies:
+#
+#   COPY . .
+#   RUN npm install
+#
+# then ANY code change would invalidate the cache and force:
+# - full dependency reinstall
+# - slow rebuild times
+#
+# OPTIMIZED APPROACH USED HERE:
+#
+#   1. COPY package.json and package-lock.json first
+#   2. RUN npm install (cached layer)
+#   3. COPY application source code
+#
+# RESULT:
+# - dependencies installed only when package files change
+# - fast iteration when modifying worker logic
+# - avoids unnecessary reinstall of heavy node_modules
+#
+# IMPORTANCE IN THIS PROJECT:
+# - worker logic changes frequently (rules, analysis, heuristics)
+# - fast rebuild cycles are critical for development efficiency
+###############################################################################
+COPY backend/package*.json ./
+RUN npm install
+
+###############################################################################
+# Copy worker source & shared code into container
+###############################################################################
+COPY shared ../shared
+COPY backend/ .
+
+###############################################################################
+# Start worker process
+#
+# NOTE:
+# This must point to the worker entry file that:
+# - connects to Redis queue
+# - listens for "analyze" jobs
+# - processes review analysis pipeline
+###############################################################################
+CMD ["node", "src/worker.js"]

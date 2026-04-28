@@ -1,507 +1,109 @@
-# Distributed AI Demo infrastructure.
-# Defines the full infrastructure required for the distributed AI demo project.
+###############################################################################
+# Suspicious Email Triage - Docker Compose
 #
-# Supports all the versions: Development, Staging, Production
-# Detects the current environment using variable ENVIRONMENT, which may get the following values: dev, staging, prod
-# Based on the detected environment, automatically loads one of: backend/.env.dev, backend/.env.staging, backend/.env.prod
-# Examples:
-# ENVIRONMENT=dev     docker compose up -d
-# ENVIRONMENT=staging docker compose up -d
-# ENVIRONMENT=prod    docker compose up -d
+# PURPOSE:
+# This file defines the full local development / containerized runtime
+# environment for the Suspicious Email Triage system.
 #
-# System Architecture: Client → Django REST API (backend) → Kafka Producer → Kafka → Kafka Consumer → Celery → PostgreSQL / MongoDB
+# ARCHITECTURE OVERVIEW:
 #
-# Supporting services: Redis (Celery broker), RabbitMQ (optional), Zookeeper (Kafka coordination).
+#   frontend (external / React dev server)
+#          ↓ HTTP
+#   backend (Express API)
+#          ↓
+#   Redis (BullMQ queue)
+#          ↓
+#   worker (async analysis engine)
+#          ↓
+#   MongoDB (persistent storage)
 #
-# Role in system
-# --------------
-# Provides the backbone services required for the distributed AI pipeline:
-# - Structured storage: PostgreSQL
-# - Document storage: MongoDB
-# - Async broker: Redis
-# - Event streaming: Kafka
-# - Coordination: Zookeeper
-# - Optional queue: RabbitMQ
-#
-# Flow
-# ----
-# Client / API → Kafka Producer → Kafka → Kafka Consumer → Celery → Worker → DB
-# Other services provide storage and queueing as needed.
-#
-# Usage Notes
-# -----------
-# 1. Start all services:
-#    cd ~/distributed-ai-demo/infra
-#    docker compose up -d
-# 2. Verify service status:
-#    docker compose ps
-# 3. Access:
-#    - PostgreSQL: localhost:5432
-#    - MongoDB: localhost:27017
-#    - Redis: localhost:6379
-#    - RabbitMQ UI: http://localhost:15672
-#    - Kafka: localhost:9092
-#    - Zookeeper: localhost:2181
-# 4. Make sure Kafka topic "ai_tasks" exists before producing messages.
-# 5. Volumes ensure data persists even if containers are removed.
-#
-# Healthcheck
-# -----------
-# Defines how Docker determines whether this service is ready.
-# A container can be "running" but not yet ready to accept connections.
-# Healthcheck prevents dependent services (like backend) from starting too early.
-# Once healthy, dependent services may safely start.
-# Arguments:
-# - test: Command executed to verify service health.
-# - interval: How often Docker runs the health check.
-# - timeout: How long Docker waits for the check to complete.
-# - retries: How many failures before marking container as "unhealthy".
-# =============================================================================
-
+# DESIGN GOALS:
+# - Fully decoupled async processing (API vs worker)
+# - Scalable background job architecture (BullMQ)
+# - Stateless API container
+# - Persistent database + queue separation
+###############################################################################
 
 services:
 
-  # Runs Django Backend (REST API).
-  backend:
-
-    # Build Docker  from <../../backend/Dockerfile>.
-    build:
-
-      # Set the context to directory distributed-ai-demo, because Docker thinks it is distributed-ai-demo/backend/backend.
-      context: ../../
-
-      # Set the Dockerfile path relative to the build context (NOT relative to <docker-compose.yml>!).
-      dockerfile: infra/docker/Dockerfile
-
-    # Set an explicit container name (instead of auto-generated).
-    # This makes logs, debugging, and networking clearer, as without this, Docker auto-generates rather complex container names (e.g., <distributed-ai-demo-backend-1>).
-    container_name: backend
-
-    # Set working directory (=where the commands run and how relative paths resolve) to a value that suits Docker, that naturally considers "backend" as the working directory ("app"), so that manage.py is directly runnable.
-    # Python imports (backend.settings, backend.urls) work because /app is on PYTHONPATH.
-    working_dir: /app
-
-    volumes:
-      # Mount project into /app so Django modules are importable.
-      # Use for this purpose a value that suits Docker, that naturally considers "backend" as the working directory ("app").
-      # Set working directory to a value that suits Docker, so that manage.py is directly runnable.
-      # Python imports (backend.settings) work because /app is on PYTHONPATH.
-      - ../../:/app
-
-    ports:
-      # Expose backend to host machine via port 8000.
-      # Map host port 8000 → container port 8000, in order to allow users to access the backend from their browser using the URL "http://localhost:8000".
-      - "8000:8000"
-
-    # Load environment-specific configuration file (i.e., the suitable environment variables) into the container, so that Django may start.
-    # ${ENVIRONMENT:-dev} means: use ENVIRONMENT variable if exists, or otherwise default to "dev".
-    # Examples:
-    #   ENVIRONMENT=dev     -> .env.dev
-    #   ENVIRONMENT=staging -> .env.staging
-    #   ENVIRONMENT=prod    -> .env.prod
-    env_file:
-      - ../../backend/.env.${ENVIRONMENT:-dev}
-
-    environment:
-      # Tell Django which settings module to use.
-      # Required for ANY Django execution outside <manage.py> (e.g., python -c, Celery, Kafka workers, gunicorn): without it, Django cannot load configuration and will fail with "ModuleNotFoundError: backend.settings".
-      # Point to <backend/backend/settings/__init__.py>, which should dynamically select the correct environment, dev/staging/prod, based on variable ENVIRONMENT.
-      DJANGO_SETTINGS_MODULE: backend.config.settings
-      # Extend Python module search path inside the container.
-      # Value "/app" explained"
-      # - With the following container structure:
-      #   /app
-      #     └── backend/
-      #           ├── backend/        ← Django project package (settings, urls, wsgi)
-      #           ├── core/           ← app
-      #           └── health/         ← app
-      #   The value "/app" allows Python to resolve:
-      #   -  backend.config.settings    ← Django settings module
-      #   -  backend.core               ← core app
-      #   -  backend.health             ← health app
-      #   Because:
-      #   - /app is the root
-      #   - "backend" is the top-level package
-      #   - everything is imported relative to it
-      PYTHONPATH: /app
-
-
-    # Start this service only after starting the following ones and verifying their health, as it depends on them.
-    # Notice: This DOES NOT guarantee readiness, only the startup order!
-    depends_on:
-      - postgres
-      - redis
-      - mongo
-      - kafka
-      # postgres:
-      #   condition: service_healthy   <-- Unsupported by Docker Compose v2 syntax
-      # redis:
-      #   condition: service_healthy   <-- Unsupported by Docker Compose v2 syntax
-      # mongo:
-      #   condition: service_started   <-- Unsupported by Docker Compose v2 syntax
-      # kafka:
-      #   condition: service_started   <-- Unsupported by Docker Compose v2 syntax
-
-    # Development server.
-    # Apply migrations automatically, and only then start the Django dev server.
-    # "sh -c" allows chaining multiple commands.
-    # "&&" means "run second only if first succeeds" (i.e., apply DB migrations, and only after it succeeds start Django server).
-    command: >
-      sh -c "
-        cd /app/backend &&
-        python manage.py migrate &&
-        python manage.py runserver 0.0.0.0:8000
-      "
-
-    # Make the container auto-recover.
-    # Automatically restart container unless manually stopped.
-    # Improves resiliency in staging & production.
-    restart: unless-stopped
-
-    # Perform health check (see "Healthcheck" above).
-    # Note: The original healthcheck tried the url "/" (or "http://localhost:8000/") and expected "HTTP 200 OK", but "/" is not defined, so Django returned "GET / → 404", what made Docker mark it as "unhealthy (ExitCode 22)".
-    healthcheck:
-
-      # Paremeter "-f" means "fail if HTTP isn't 200".
-      # test: ["CMD", "curl", "-f", "http://localhost:8000/"]
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
-
-      # Recheck every 10 seconds until succeeds.
-      interval: 10s
-
-      # Fail if no response in 5 seconds.
-      timeout: 5s
-
-      # Consider unhealthy and stop rechecking in case of 5 failures.
-      retries: 5
-
-  # Kafka Consumer — Kafka Events Reader and Celery Tasks Dispatcher
-  kafka-consumer:
-    # Build as part of the backend image.
-    build:
-      context: ../../backend
-      # Set the Dockerfile path relative to the build context (NOT relative to <docker-compose.yml>!).
-      dockerfile: ../infra/docker/Dockerfile
-
-    # Set an explicit container name (instead of auto-generated).
-    # This makes logs, debugging, and networking clearer, as without this, Docker auto-generates rather complex container names (e.g., <distributed-ai-demo-backend-1>).
-    container_name: kafka-consumer
-
-    # Load environment-specific configuration file.
-    # ${ENVIRONMENT:-dev} means: use ENVIRONMENT variable if exists, or otherwise default to "dev".
-    # Examples:
-    #   ENVIRONMENT=dev     -> .env.dev
-    #   ENVIRONMENT=staging -> .env.staging
-    #   ENVIRONMENT=prod    -> .env.prod
-    env_file:
-      - ../../backend/.env.${ENVIRONMENT:-dev}
-
-    # Start this service only after starting the following ones and verifying their health, as it depends on them.
-    depends_on:
-      - kafka
-      - redis
-      - postgres
-      # kafka:
-      #   condition: service_healthy   <-- Unsupported by Docker Compose v2 syntax
-      # redis:
-      #   condition: service_healthy   <-- Unsupported by Docker Compose v2 syntax
-      # postgres:
-      #   condition: service_healthy   <-- Unsupported by Docker Compose v2 syntax
-
-    # Development server.
-    command: python manage.py run_kafka_consumer
-
-    # Make the container auto-recover.
-    # Automatically restart container unless manually stopped.
-    # Improves resiliency in staging & production.
-    restart: unless-stopped
-
-
-  # Celery Worker.
-  # Executes background tasks.
-  # Used by Kafka consumer.
-  celery:
-    # Use same image as backend (see under "backend:" above).
-    build:
-      context: ../../backend
-      # Set the Dockerfile path relative to the build context (NOT relative to <docker-compose.yml>!).
-      dockerfile: ../infra/docker/Dockerfile
-
-    # Set an explicit container name (instead of auto-generated).
-    # This makes logs, debugging, and networking clearer, as without this, Docker auto-generates rather complex container names (e.g., <distributed-ai-demo-backend-1>).
-    container_name: celery
-
-    # Load environment-specific configuration.
-    # ${ENVIRONMENT:-dev} means: use ENVIRONMENT variable if exists, or otherwise default to "dev".
-    # Examples:
-    #   ENVIRONMENT=dev     -> .env.dev
-    #   ENVIRONMENT=staging -> .env.staging
-    #   ENVIRONMENT=prod    -> .env.prod
-    env_file:
-      - ../../backend/.env.${ENVIRONMENT:-dev}
-
-    # Start this service only after starting the following ones and verifying their health, as it depends on them.
-    depends_on:
-      - postgres
-      - redis
-      - mongo
-      - kafka
-      # postgres:
-      #   condition: service_healthy   <-- Unsupported by Docker Compose v2 syntax
-      # redis:
-      #   condition: service_healthy   <-- Unsupported by Docker Compose v2 syntax
-      # mongo:
-      #   condition: service_started   <-- Unsupported by Docker Compose v2 syntax
-      # kafka:
-      #   condition: service_started   <-- Unsupported by Docker Compose v2 syntax
-
-    # Start Celery worker
-    # Celery executes background tasks, and consumes jobs from Redis.
-    # "-A backend" is the Django project name being served by Celery.
-    # "worker" instructs to run the worker process.
-    # "--loglevel" specifies the desired verbosity.
-    # "--concurrency" allows for parallel tasks (for staging & production, best use "concurrency=CPU count").
-    command: celery -A backend worker --loglevel=info --concurrency=2
-
-    # Make the container auto-recover.
-    # Automatically restart container unless manually stopped.
-    # Improves resiliency in staging & production.
-    restart: unless-stopped
-
-    # Health check (see "Healthcheck" above).
-    healthcheck:
-      test: ["CMD-SHELL", "celery -A backend inspect ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-
-  # PostgreSQL — Structured Storage.
-  postgres:
-    # Use the official PostgreSQL image.
-    image: postgres:15
-
-    # Set an explicit container name (instead of auto-generated).
-    # This makes logs, debugging, and networking clearer, as without this, Docker auto-generates rather complex container names (e.g., <distributed-ai-demo-backend-1>).
-    container_name: postgres
-
-    # Initial configuration to be only used on the first startup.
-    # Credentials & secrets must be changed in staging & production.
-    environment:
-      POSTGRES_USER: demo
-      POSTGRES_PASSWORD: demo
-      POSTGRES_DB: demo
-
-    ports:
-      # Expose database to host machine via port 5432.
-      # Map host port 5432 → container port 5432, in order to allow PostgreSQL access using DB client host localhost & port 5432".
-      - "5432:5432"
-
-    # Use the follwing named volumes to store system metadata and database files.
-    # Persistence across container restarts prevents data loss when container removed.
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-    # Make the container auto-recover.
-    # Automatically restart container unless manually stopped.
-    # Improves resiliency in staging & production.
-    restart: unless-stopped
-
-    # Health check (see "Healthcheck" above).
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U demo"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-
-  # MongoDB — Document Storage.
+  #############################################################################
+  # MongoDB - Primary Data Store
+  #
+  # ROLE:
+  # - stores all email reviews
+  # - stores analysis results
+  # - stores analyst overrides
+  #
+  # NOTES:
+  # - runs as standalone container
+  # - exposed locally for debugging (27018 on host → 27017 in container)
+  #############################################################################
   mongo:
-    # Use the official MongoDB image.
-    image: mongo:7
-
-    # Set an explicit container name (instead of auto-generated).
-    # This makes logs, debugging, and networking clearer, as without this, Docker auto-generates rather complex container names (e.g., <distributed-ai-demo-backend-1>).
-    container_name: mongo
-
+    container_name: triage-mongo
+    image: mongo:6
     ports:
-      # Expose database to host machine via port 27017.
-      # Map host port 27017 → container port 27017, in order to allow MongoDb access using DB client connection "mongodb://localhost:27017".
-      - "27017:27017"
-
-    # Stores AI input/output.
-    # Use the follwing named volumes to store AI input & output and database files.
-    # Persistence across container restarts prevents data loss when container removed.
-    volumes:
-      - mongo_data:/data/db
-
-    # Make the container auto-recover.
-    # Automatically restart container unless manually stopped.
-    # Improves resiliency in staging & production.
+      - "27018:27017"
     restart: unless-stopped
 
-    # Health check (see "Healthcheck" above).
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Redis — Celery Broker.
-  # Celery task queue.
-  # Fast in-memory storage.
-  # Note:
-  # - No named volume is used with Redis, so it works in-memory only, as this is enough for Celery to use Redis for broker usage.
+  #############################################################################
+  # Redis - Queue Backend (BullMQ)
+  #
+  # ROLE:
+  # - stores job queue for async processing
+  # - acts as broker between API and worker
+  #
+  # FLOW:
+  # backend → Redis queue → worker consumes jobs
+  #############################################################################
   redis:
-    # Use the official Redis image.
+    container_name: triage-redis
     image: redis:7
-
-    # Set an explicit container name (instead of auto-generated).
-    # This makes logs, debugging, and networking clearer, as without this, Docker auto-generates rather complex container names (e.g., <distributed-ai-demo-backend-1>).
-    container_name: redis
-
     ports:
-      # Expose database to host machine via port 6379.
-      # Map host port 6379 → container port 6379, in order to allow Redis access using DB client connection "redis://localhost:6379".
       - "6379:6379"
-
-    # Make the container auto-recover.
-    # Automatically restart container unless manually stopped.
-    # Improves resiliency in staging & production.
     restart: unless-stopped
 
-    # Health check (see "Healthcheck" above).
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-
-  # RabbitMQ — Optional Messaging Layer.
-  rabbitmq:
-    # Use the official RabbitMQ image.
-    image: rabbitmq:3-management
-
-    # Set an explicit container name (instead of auto-generated).
-    # This makes logs, debugging, and networking clearer, as without this, Docker auto-generates rather complex container names (e.g., <distributed-ai-demo-backend-1>).
-    container_name: rabbitmq
-
-    # Load environment-specific configuration file.
-    # The environment-specific configuration file, among the others, also sets the required credentials, RABBITMQ_DEFAULT_USER & RABBITMQ_DEFAULT_PASSWORD.
-    # ${ENVIRONMENT:-dev} means: use ENVIRONMENT variable if exists, or otherwise default to "dev".
-    # Examples:
-    #   ENVIRONMENT=dev     -> .env.dev
-    #   ENVIRONMENT=staging -> .env.staging
-    #   ENVIRONMENT=prod    -> .env.prod
-    env_file:
-      - ../../backend/.env.${ENVIRONMENT:-dev}
-
-    environment:
-      # Set default login credentials for RabbitMQ.
-      # The format "${VAR:-default}" instructs to use the environment variable if set, and otherwise defaults to the value after ":-".
-      # Using this environment variable allows to keep one <docker-compose.yml>, and switch environments via <.env> files.
-      # Set username for connecting apps (Celery, backend).
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-demo}
-      # Set password for the above user.
-      RABBITMQ_DEFAULT_PASSWORD: ${RABBITMQ_PASSWORD:-demo}
-      # Set custom virtual host (vhost) per environment.
-      # Custom virtual hosts are used with RabbitMQ as best practice to isolate groups of queues, exchanges, and users, especially in multi-service environments or for isolation between the activity of the dev, test, and prod environment versions.
-      # The default vhost "/" (a single slash) is used if a custom vhost isn't explicitly specified in the app connection, CELERY_BROKER_URL.
-      # RABBITMQ_DEFAULT_VHOST: /
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/dev}
-
+  #############################################################################
+  # Backend API (Express Server)
+  #
+  # ROLE:
+  # - exposes REST API (/reviews, /test, /override)
+  # - writes to MongoDB
+  # - enqueues jobs into Redis queue
+  #
+  # DEPENDENCIES:
+  # - mongo (data persistence)
+  # - redis (job queue)
+  #############################################################################
+  backend:
+    container_name: triage-backend
+    build:
+      context: ../../
+      dockerfile: backend/Dockerfile
     ports:
-      # For the purpose of AMQP protocol, expose queue to host machine via port 5672.
-      # Map host port 5672 → container port 5672, in order to allow AMQP queue access using AMQP connection "amqp://localhost:5672".
-      - "5672:5672"
-      # For the purpose of Web management UI, expose queue to host machine via port 15672.
-      # Map host port 15672 → container port 15672, in order to allow Web management UI queue access using the URL "http://localhost:15672".
-      - "15672:15672"
-
-    # Make the container auto-recover.
-    # Automatically restart container unless manually stopped.
-    # Improves resiliency in staging & production.
-    restart: unless-stopped
-
-
-  # Zookeeper — Kafka Coordination Service.
-  zookeeper:
-    # Use the official ZooKeeper image.
-    image: confluentinc/cp-zookeeper:7.6.1
-
-    # Set an explicit container name (instead of auto-generated).
-    # This makes logs, debugging, and networking clearer, as without this, Docker auto-generates rather complex container names (e.g., <distributed-ai-demo-backend-1>).
-    container_name: zookeeper
-
-    # Set client connection port.
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      # Set heartbeat timing.
-      ZOOKEEPER_TICK_TIME: 2000
-
-    ports:
-      # Expose service to host machine via port 2181.
-      # Map host port 2181 → container port 2181, in order to allow service access using client connection host localhost & port 2181.
-      - "2181:2181"
-
-    # Make the container auto-recover.
-    # Automatically restart container unless manually stopped.
-    # Improves resiliency in staging & production.
-    restart: unless-stopped
-
-
-  # Kafka — Event Streaming Platform.
-  # Used by producer & consumer.
-  kafka:
-    # Use the official Kafka image.
-    image: confluentinc/cp-kafka:7.6.1
-
-    # Set an explicit container name (instead of auto-generated).
-    # This makes logs, debugging, and networking clearer, as without this, Docker auto-generates rather complex container names (e.g., <distributed-ai-demo-backend-1>).
-    container_name: kafka
-
-    # The Kafka service depends on the service ZooKeeper.
+      - "3000:3000"
     depends_on:
-      - zookeeper
-      # - zookeeper:
-      #     condition: service_started   <-- Unsupported by Docker Compose v2 syntax
-
-    environment:
-      # Set broker ID (single-node cluster).
-      KAFKA_BROKER_ID: 1
-      # Set Zookeeper connection string.
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      # Set listeners.
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      # Set address advertised to clients.
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      # Set single broker replication.
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      # Enable auto-creation of topic in order to prevent producer failures.
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-
-    ports:
-      # Expose platform to host machine via port 9092.
-      # Map host port 9092 → container port 9092, in order to allow platform access using client connection host localhost & port 9092.
-      - "9092:9092"
-
-    # Make the container auto-recover.
-    # Automatically restart container unless manually stopped.
-    # Improves resiliency in staging & production.
+      - mongo
+      - redis
     restart: unless-stopped
 
-    # Health check (see "Healthcheck" above).
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/9092'"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-
-# Persistent Volumes.
-volumes:
-  postgres_data:
-    # Stores PostgreSQL data.
-  mongo_data:
-    # Stores MongoDB data.
+  #############################################################################
+  # Worker (Async Analysis Engine)
+  #
+  # ROLE:
+  # - consumes jobs from Redis queue
+  # - runs analysis logic (rules / ML / heuristics)
+  # - updates MongoDB with results
+  #
+  # DESIGN:
+  # - fully decoupled from HTTP layer
+  # - can be horizontally scaled independently
+  #############################################################################
+  worker:
+    container_name: triage-worker
+    build:
+      context: ../../
+      dockerfile: backend/Dockerfile.worker
+    depends_on:
+      - mongo
+      - redis
+    restart: unless-stopped

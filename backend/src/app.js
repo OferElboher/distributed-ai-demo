@@ -27,7 +27,7 @@ const { Queue } = require("bullmq");
 const IORedis = require("ioredis");
 
 const connection = new IORedis({
-  host: "127.0.0.1",
+  host: "redis",
   port: 6379,
   maxRetriesPerRequest: null,
 });
@@ -77,27 +77,28 @@ app.get("/health", (req, res) => {
  * frontend → API → MongoDB → BullMQ → worker → analysis update
  */
 app.post("/test", async (req, res) => {
-  console.log("TEST HIT:", req.body);
+  try {
+    const review = await Review.create({
+      body: req.body.message,
+      subject: "demo subject",
+      senderEmail: "demo@example.com",
+      senderName: "demo user",
+      status: "pending",
+      createdAt: new Date(),
+    });
 
-  // 1. Create review in MongoDB
-  const review = await Review.create({
-    body: req.body.message,
-    subject: "demo subject",
-    senderEmail: "demo@example.com",
-    senderName: "demo user",
-    status: "pending",
-    createdAt: new Date(),
-  });
+    await reviewQueue.add("analyze", {
+      reviewId: review._id.toString(),
+    });
 
-  // 2. Push job to queue for async processing
-  await reviewQueue.add("analyze", {
-    reviewId: review._id.toString(),
-  });
-
-  res.json({
-    ok: true,
-    reviewId: review._id,
-  });
+    res.json({
+      ok: true,
+      reviewId: review._id,
+    });
+  } catch (err) {
+    console.error("TEST endpoint error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
 });
 
 
@@ -128,13 +129,18 @@ app.post("/test", async (req, res) => {
  * required for background job systems.
  */
 app.get("/reviews/:id", async (req, res) => {
-  const review = await Review.findById(req.params.id);
+  try {
+    const review = await Review.findById(req.params.id);
 
-  if (!review) {
-    return res.status(404).json({ error: "Not found" });
+    if (!review) {
+      return res.status(404).json({ error: "not_found" });
+    }
+
+    res.json(review);
+  } catch (err) {
+    console.error("GET review error:", err);
+    res.status(500).json({ error: "internal_error" });
   }
-
-  res.json(review);
 });
 
 
@@ -153,24 +159,27 @@ app.get("/reviews/:id", async (req, res) => {
  * - analyst-provided reason
  */
 app.post("/reviews/:id/override", async (req, res) => {
-  const { verdict, recommendedAction, reason } = req.body;
+  try {
+    const review = await Review.findById(req.params.id);
 
-  const review = await Review.findById(req.params.id);
+    if (!review) {
+      return res.status(404).json({ error: "not_found" });
+    }
 
-  if (!review) {
-    return res.status(404).json({ error: "Not found" });
+    review.override = {
+      verdict: req.body.verdict,
+      recommendedAction: req.body.recommendedAction,
+      reason: req.body.reason,
+      timestamp: new Date(),
+    };
+
+    await review.save();
+
+    res.json({ ok: true, review });
+  } catch (err) {
+    console.error("Override error:", err);
+    res.status(500).json({ error: "internal_error" });
   }
-
-  review.override = {
-    verdict,
-    recommendedAction,
-    reason,
-    timestamp: new Date()
-  };
-
-  await review.save();
-
-  res.json({ ok: true, review });
 });
 
 
@@ -179,7 +188,7 @@ app.post("/reviews/:id/override", async (req, res) => {
 ///////////////////////////////////////////////////////////////////////////////
 
 mongoose
-  .connect("mongodb://localhost:27018/triage")
+  .connect("mongodb://mongo:27017/triage")
   .then(() => console.log("MongoDB connection established"))
   .catch((err) => console.error("MongoDB connection error:", err));
 

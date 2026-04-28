@@ -79,7 +79,7 @@ const { analyzeReview } = require("../llm/analyzeReview");
  *   to avoid interrupting blocking queue operations
  */
 const connection = new IORedis({
-  host: "127.0.0.1",
+  host: "redis",
   port: 6379,
   maxRetriesPerRequest: null,
 });
@@ -100,7 +100,7 @@ const connection = new IORedis({
  * If DB is unavailable, worker must not process jobs.
  */
 mongoose
-  .connect("mongodb://localhost:27018/triage")
+  .connect("mongodb://mongo:27017/triage")
   .then(() => {
     console.log("Worker connected to MongoDB");
 
@@ -407,6 +407,7 @@ mongoose
           }
 
           throw err;
+          return;
         }
       },
 
