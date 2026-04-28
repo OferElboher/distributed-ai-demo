@@ -2,41 +2,43 @@
 // Core Framework
 ///////////////////////////////////////////////////////////////////////////////
 
-/**
- * Express framework for HTTP server and routing
- * (provides robust tools for routing, handling HTTP requests, and managing middleware)
- */
 const express = require("express");
-
-/**
- * CORS middleware to allow frontend communication
- * (CORS (Cross-Origin Resource Sharing) relaxes the browser's Same-Origin Policy (SOP)
- * by setting HTTP headers that allow or restrict web browsers from making server requests
- * from a different domain, domain port, or protocol)
- */
 const cors = require("cors");
-
-/**
- * MongoDB object modeling via Mongoose
- * (stores nested, evolving JSON-like data structures directly in a single document,
- * avoiding the need for table joins and making complex records like email analysis
- * results easier to read and write)
- */
 const mongoose = require("mongoose");
+require("dotenv").config();
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Models
+///////////////////////////////////////////////////////////////////////////////
+
+const Review = require("./models/Review");
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Queue (BullMQ Producer)
+///////////////////////////////////////////////////////////////////////////////
 
 /**
- * Environment variable loader (.env support)
+ * Redis-backed job queue for async review processing
+ * (must match worker queue name: "review-analysis")
  */
-require("dotenv").config();
+const { Queue } = require("bullmq");
+const IORedis = require("ioredis");
+
+const connection = new IORedis({
+  host: "127.0.0.1",
+  port: 6379,
+  maxRetriesPerRequest: null,
+});
+
+const reviewQueue = new Queue("review-analysis", { connection });
 
 
 ///////////////////////////////////////////////////////////////////////////////
 // Application Initialization
 ///////////////////////////////////////////////////////////////////////////////
 
-/**
- * Express application instance
- */
 const app = express();
 
 
@@ -44,42 +46,22 @@ const app = express();
 // Middleware Configuration
 ///////////////////////////////////////////////////////////////////////////////
 
-/**
- * Enables Cross-Origin Resource Sharing
- * (required for React frontend integration)
- */
 app.use(cors());
-
-/**
- * Parses incoming JSON payloads
- */
 app.use(express.json());
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// API Routes Registration
+// Routes
 ///////////////////////////////////////////////////////////////////////////////
 
-/**
- * Imports the review route module.
- * This module contains all endpoints related to creating and managing email reviews.
- * Import it for the API routes to exist inside the application.
- */
+// Request "/reviews", which does "Get All Paginated Reviews",
+// is routed to <backend/src/api/reviews.js>.
 const reviewRoutes = require("./api/reviews");
-
-/**
- * Registers/mounts the review routes under the "/reviews" URL path.
- * Attaches the requests defined in the review API module to the main Express app.
- */
 app.use("/reviews", reviewRoutes);
 
 
-///////////////////////////////////////////////////////////////////////////////
-// Health Check Endpoint
-///////////////////////////////////////////////////////////////////////////////
-
 /**
- * Basic service health endpoint
+ * Health check endpoint
  */
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -87,13 +69,115 @@ app.get("/health", (req, res) => {
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// Database Connection
+// Test Endpoint (End-to-End Pipeline Trigger)
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * MongoDB connection setup
- * (create the triage DB; password authentication is not enabled in this setup)
+ * Flow:
+ * frontend → API → MongoDB → BullMQ → worker → analysis update
  */
+app.post("/test", async (req, res) => {
+  console.log("TEST HIT:", req.body);
+
+  // 1. Create review in MongoDB
+  const review = await Review.create({
+    body: req.body.message,
+    subject: "demo subject",
+    senderEmail: "demo@example.com",
+    senderName: "demo user",
+    status: "pending",
+    createdAt: new Date(),
+  });
+
+  // 2. Push job to queue for async processing
+  await reviewQueue.add("analyze", {
+    reviewId: review._id.toString(),
+  });
+
+  res.json({
+    ok: true,
+    reviewId: review._id,
+  });
+});
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Get Single Review (Structured Result Fetch Endpoint)
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * GET /reviews/:id
+ *
+ * Purpose:
+ * Retrieves a full review document from MongoDB, including:
+ * - original email content
+ * - current processing status
+ * - analysis result (if available)
+ *
+ * This endpoint is required for the frontend to:
+ * - display structured triage results
+ * - refresh analysis state asynchronously
+ *
+ * ARCHITECTURE ROLE:
+ * Frontend
+ *   → calls this endpoint after submission
+ *   → fetches updated review state from DB
+ *   → displays verdict, findings, and recommendations
+ *
+ * This completes the "read-after-async-process" pattern
+ * required for background job systems.
+ */
+app.get("/reviews/:id", async (req, res) => {
+  const review = await Review.findById(req.params.id);
+
+  if (!review) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  res.json(review);
+});
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Manual Override Endpoint (Analyst Control Layer)
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * POST /reviews/:id/override
+ *
+ * Allows an analyst to override system-generated triage results.
+ *
+ * Stores:
+ * - original analysis result (preserved automatically in DB document)
+ * - overridden verdict or action
+ * - analyst-provided reason
+ */
+app.post("/reviews/:id/override", async (req, res) => {
+  const { verdict, recommendedAction, reason } = req.body;
+
+  const review = await Review.findById(req.params.id);
+
+  if (!review) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  review.override = {
+    verdict,
+    recommendedAction,
+    reason,
+    timestamp: new Date()
+  };
+
+  await review.save();
+
+  res.json({ ok: true, review });
+});
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Database Connection
+///////////////////////////////////////////////////////////////////////////////
+
 mongoose
   .connect("mongodb://localhost:27018/triage")
   .then(() => console.log("MongoDB connection established"))
@@ -101,61 +185,32 @@ mongoose
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// Server Configuration
+// Server Startup
 ///////////////////////////////////////////////////////////////////////////////
 
-/**
- * Application port configuration
- */
 const PORT = process.env.PORT || 3000;
 
-// Test endpoint for end-to-end verification (frontend → backend → request parsing)
-// Used in demo to confirm API receives and returns JSON correctly
-app.post("/test", (req, res) => {
-  console.log("TEST HIT:", req.body);
-  res.json({ ok: true, received: req.body });
-});
-
-/**
- * Starts HTTP server
- */
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// TDB - Planned Features (Not Implemented Yet)
+// TBD - Planned Features
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * TDB: Review API routes
- * - POST /reviews
- * - GET /reviews
- * - GET /reviews/:id
- */
-
-/**
- * TDB: Background job queue integration (BullMQ)
- * - async email analysis pipeline
- */
-
-/**
- * TDB: AI analysis service integration
+ * AI analysis service integration
+ * - phishing detection
  * - summarization
- * - phishing detection reasoning
- * - follow-up questions generation
  */
 
 /**
- * TDB: Deterministic rule engine
- * - credential request detection
- * - domain mismatch checks
- * - urgency pattern detection
+ * Rule engine
+ * - credential detection
+ * - urgency detection
  */
 
 /**
- * TDB: Manual override system
- * - analyst verdict override
- * - audit trail storage
+ * Audit trail + analyst override system
  */

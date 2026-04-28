@@ -3,46 +3,80 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * This worker is responsible for consuming jobs from the "review-analysis" queue,
- * that's defined in <backend/src/queue/reviewQueue.js>.
+ * This worker is responsible for consuming jobs from the "review-analysis"
+ * queue, which is defined in <backend/src/queue/reviewQueue.js>.
  *
- * Architecture role:
- * - API layer enqueues review analysis jobs into Redis
- * - Worker processes these jobs asynchronously
- * - Worker updates MongoDB with analysis results
+ * It is a core component of the asynchronous triage pipeline.
  *
- * This separation ensures:
- * - API remains fast and non-blocking
- * - Heavy processing is offloaded to background workers
+ * ARCHITECTURE ROLE:
+ *
+ * The system follows a strict separation of concerns:
+ *
+ * 1. API Layer (Express)
+ *    - receives email review requests
+ *    - stores initial Review document in MongoDB
+ *    - enqueues job into Redis (BullMQ queue)
+ *
+ * 2. Worker Layer (this file)
+ *    - consumes queued jobs asynchronously
+ *    - performs deterministic + AI-based analysis
+ *    - updates MongoDB with final structured result
+ *
+ * 3. Storage Layer (MongoDB)
+ *    - persists both raw input and analysis results
+ *
+ * This ensures:
+ * - non-blocking API behavior
+ * - scalable background processing
+ * - separation between ingestion and computation
+ * - extensibility for AI-driven enrichment
  */
+
 
 const mongoose = require("mongoose");
 const { Worker } = require("bullmq");
 const IORedis = require("ioredis");
 const Review = require("../models/Review");
 
+
 ///////////////////////////////////////////////////////////////////////////////
-// Redis Connection
+// LLM INTEGRATION (Ollama Local Model)
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * Redis client used by both queue and worker.
+ * LLM-based analysis module.
  *
- * Redis acts as the job broker between:
- * - Producer (API)
- * - Consumer (Worker)
+ * This does the following:
+ * - introduces AI-assisted reasoning into the pipeline
+ * - complements deterministic rule-based logic
+ * - produces structured triage output
  *
- * Requirements:
- * - Must use same host/port as API queue
- * - maxRetriesPerRequest must be null due to BullMQ blocking operations
- *   (BullMQ uses long-lived blocking Redis commands to wait for jobs.
- *    If maxRetriesPerRequest isn't null, ioredis (the Node.js client library
- *    for communicating with a Redis server, and lets the application read/
- *    write data and use Redis features like queues, caching, and pub/sub)
- *    retries requests automatically, and it can interrupt or duplicate these
- *    blocking operations and break job processing. Setting it to null disables
- *    automatic retries so BullMQ can safely control reliability at the job
- *    level instead.)
+ * The model is expected to:
+ * - summarize email content
+ * - extract relevant findings
+ * - optionally generate follow-up questions
+ *
+ * IMPORTANT:
+ * This is a local Ollama-based integration and does NOT require
+ * external paid APIs.
+ */
+const { analyzeReview } = require("../llm/analyzeReview");
+
+
+///////////////////////////////////////////////////////////////////////////////
+// REDIS CONNECTION (BullMQ Transport Layer)
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Redis is used as the message broker between:
+ * - API (producer)
+ * - Worker (consumer)
+ *
+ * BullMQ relies on long-lived blocking Redis commands.
+ *
+ * Configuration requirement:
+ * - maxRetriesPerRequest must be null
+ *   to avoid interrupting blocking queue operations
  */
 const connection = new IORedis({
   host: "127.0.0.1",
@@ -50,16 +84,20 @@ const connection = new IORedis({
   maxRetriesPerRequest: null,
 });
 
+
 ///////////////////////////////////////////////////////////////////////////////
-// MongoDB Connection + Worker Startup
+// WORKER INITIALIZATION
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
  * Establish MongoDB connection before starting worker.
  *
  * Reason:
- * - Worker depends on MongoDB for reading/updating review documents
- * - Prevents processing jobs without database availability
+ * - worker depends on persistent storage for:
+ *   - reading review input
+ *   - updating analysis results
+ *
+ * If DB is unavailable, worker must not process jobs.
  */
 mongoose
   .connect("mongodb://localhost:27018/triage")
@@ -67,9 +105,12 @@ mongoose
     console.log("Worker connected to MongoDB");
 
     /**
-     * Worker Initialization
+     * BullMQ Worker Definition
      *
-     * This worker listens to "review-analysis" queue and processes jobs.
+     * Queue name: "review-analysis"
+     *
+     * Each job contains:
+     * - reviewId: reference to MongoDB document
      */
     const worker = new Worker(
       "review-analysis",
@@ -77,16 +118,15 @@ mongoose
       /**
        * Job Processor Function
        *
-       * Each job contains:
-       * - reviewId: reference to MongoDB document
-       *   (See <backend/src/api/reviews.js>, reviewQueue.add("analyze"...).)
-       *
-       * Processing steps:
-       * 1. Load review from database
-       * 2. Mark as processing
-       * 3. Perform analysis
-       * 4. Store result in database
-       * 5. Mark as completed
+       * Processing pipeline:
+       * STEP 1: Load review from MongoDB
+       * STEP 2: Mark as "processing"
+       * STEP 3: Run deterministic rule engine
+       * STEP 4: Call LLM for enrichment
+       * STEP 5: Merge results (rules take precedence)
+       * STEP 6: Persist final result
+       * 
+       * On any failure → persist status = "failed"
        */
       async (job) => {
         const { reviewId } = job.data;
@@ -94,68 +134,287 @@ mongoose
         console.log(`Processing review: ${reviewId}`);
 
         /**
-         * Load review document from MongoDB Review collection
+         * IMPORTANT:
+         * Declare review outside try/catch so we can still update its
+         * status to "failed" if something breaks later.
          */
-        const review = await Review.findById(reviewId);
+        let review;
 
-        if (!review) {
-          throw new Error(`Review not found: ${reviewId}`);
+        try {
+          const reviewLoaded = await Review.findById(reviewId);
+
+          if (!reviewLoaded) {
+            throw new Error(`Review not found: ${reviewId}`);
+          }
+
+          review = reviewLoaded;
+
+          review.status = "processing";
+          await review.save();
+
+
+          ///////////////////////////////////////////////////////////////////////////////
+          // DETERMINISTIC RULE ENGINE (Security Layer)
+          ///////////////////////////////////////////////////////////////////////////////
+
+          /**
+           * The rule engine is responsible for enforcing strict security constraints.
+           *
+           * Rules are deterministic and MUST override LLM output in case of conflict.
+           *
+           * This ensures:
+           * - predictable security behavior
+           * - no unsafe downgrade by model hallucinations
+           * - explainable decision logic
+           */
+          const text = `${review.subject} ${review.body}`.toLowerCase();
+
+          let verdict = "benign";
+          let recommendedAction = "close";
+          let findings = [];
+          let followUpQuestions = [];
+
+        /**
+         * RULE 1:
+         * Detect credential or sensitive information requests.
+         *
+         * This is a high-confidence phishing indicator.
+         */
+        if (
+          text.includes("password") ||
+          text.includes("mfa") ||
+          text.includes("credit card") ||
+          text.includes("verify account")
+        ) {
+          verdict = "likely_phishing";
+          recommendedAction = "report_and_block";
+          findings.push({
+            severity: "critical",
+            explanation: "Credential or sensitive data request detected",
+            evidence: review.body.slice(0, 120),
+          });
         }
 
         /**
-         * Update status to indicate processing has started
+         * RULE 2:
+         * Detect urgency combined with external links.
+         *
+         * This is a common social engineering pattern.
          */
-        review.status = "processing";
-        await review.save();
+        if (text.includes("urgent") && review.body.includes("http")) {
+          verdict = verdict === "benign" ? "suspicious" : verdict;
+          recommendedAction = "investigate";
+          findings.push({
+            severity: "high",
+            explanation: "Urgent language combined with external link",
+            evidence: review.body.slice(0, 120),
+          });
+        }
 
         /**
-         * Simulated AI + rule-based analysis result
+         * RULE 3:
+         * Detect mismatch between sender domain and link domains
          *
-         * (This will later be replaced with:
-         *  - LLM inference
-         *  - deterministic rule engine
-         *  - hybrid scoring logic)
+         * Example:
+         * sender: microsoft.com
+         * link: evil-login.com  → suspicious
+         *
+         * This is a strong phishing indicator.
+         */
+        if (review.links && review.links.length > 0) {
+          try {
+            /**
+             * Extract sender domain
+             * (example: user@company.com → company.com)
+             */
+            const senderDomain = review.senderEmail.split("@")[1];
+
+            /**
+             * Check each link's domain
+             */
+            review.links.forEach((link) => {
+              try {
+                const url = new URL(link);
+                const linkDomain = url.hostname;
+
+                /**
+                 * If domains do not match → add finding
+                 */
+                if (!linkDomain.includes(senderDomain)) {
+                  findings.push({
+                    severity: "high",
+                    explanation: "Link domain does not match sender domain",
+                    evidence: `${linkDomain} vs ${senderDomain}`,
+                  });
+
+                  /**
+                   * Escalate verdict if still benign
+                   */
+                  if (verdict === "benign") {
+                    verdict = "suspicious";
+                    recommendedAction = "investigate";
+                  }
+                }
+              } catch (e) {
+                // Ignore malformed URLs safely
+              }
+            });
+          } catch (e) {
+            // Ignore malformed sender email safely
+          }
+        }
+                
+        /**
+         * RULE 4:
+         * Trusted domains validation
+         *
+         * If a trusted domains list is provided and:
+         * - sender domain NOT in trusted list
+         * - AND none of the link domains are trusted
+         *
+         * → add a finding
+         */
+
+        // Find in referenceSources an entry whose lowercased title contains "trusted".
+        // If found, that entry's content is a string that contains one or more newline-
+        // separated trusted domains (e.g., "microsoft.com\noffice.com\ncompany.com",
+        // that contains 3 newline-separated domains). The domains of the sender and
+        // links in the reviewed email are compared to each of these trusted domains
+        // in order to decide whether they may be trusted, or not.
+        const trustedSource = (review.referenceSources || []).find(
+          (src) => src.title && src.title.toLowerCase().includes("trusted")
+        );
+        if (trustedSource) {
+          /**
+           * Parse trusted domains from text (newline-separated)
+           */
+          const trustedDomains = trustedSource.content
+            .split("\n")
+            .map((d) => d.trim())
+            .filter(Boolean);
+
+          try {
+            const senderDomain = review.senderEmail.split("@")[1];
+            const senderTrusted = trustedDomains.some((d) =>
+              senderDomain.includes(d)
+            );
+            const linkTrusted = (review.links || []).some((link) => {
+              try {
+                const domain = new URL(link).hostname;
+                return trustedDomains.some((d) => domain.includes(d));
+              } catch {
+                return false;
+              }
+            });
+
+            /**
+             * If nothing is trusted → add finding
+             */
+            if (!senderTrusted && !linkTrusted) {
+              findings.push({
+                severity: "medium",
+                explanation: "Sender and links do not match trusted domains list",
+                evidence: `sender: ${senderDomain}`,
+              });
+
+              if (verdict === "benign") {
+                verdict = "suspicious";
+                recommendedAction = "investigate";
+              }
+            }
+          } catch (e) {
+            // ignore malformed email safely
+          }
+        }
+
+        /**
+         * RULE 5:
+         * Low-confidence fallback handling.
+         *
+         * If no rules were triggered, we explicitly request
+         * additional analyst clarification via follow-up questions.
+         */
+        if (findings.length === 0) {
+          followUpQuestions.push(
+            "Is this email expected?",
+            "Do you recognize the sender?"
+          );
+
+          /**
+           * insufficient information → investigate
+           */
+          recommendedAction = "investigate";
+        }
+
+
+        ///////////////////////////////////////////////////////////////////////////////
+        // LLM ENRICHMENT STEP (Ollama)
+        ///////////////////////////////////////////////////////////////////////////////
+
+        /**
+         * The LLM is used AFTER rule evaluation.
+         *
+         * Its role:
+         * - enhance explanation quality
+         * - generate structured insights
+         * - suggest additional reasoning
+         *
+         * IMPORTANT:
+         * LLM output is NEVER allowed to override rule-based verdict.
+         */
+        const llmResult = await analyzeReview(review);
+
+
+        ///////////////////////////////////////////////////////////////////////////////
+        // FINAL HYBRID RESULT
+        ///////////////////////////////////////////////////////////////////////////////
+
+        /**
+         * Final result is composed using hybrid logic:
+         * - Rule engine determines security-critical fields
+         * - LLM enhances explanation and structure
+         * - Rules always take precedence over model output
          */
         const result = {
-          verdict: "suspicious",
-          recommendedAction: "investigate",
-          summary: "Email contains urgent language and external link.",
+          verdict,
+          recommendedAction,
+          summary: llmResult.summary,
           findings: [
-            {
-              severity: "high",
-              explanation: "Urgency-based social engineering pattern detected",
-              evidence: review.body.slice(0, 120),
-            },
+            ...findings,
+            ...(llmResult.findings || []),
           ],
-          followUpQuestions: [
-            "Was this email expected?",
-            "Did you recently request a password reset?",
-          ],
+          followUpQuestions:
+            followUpQuestions.length > 0
+              ? followUpQuestions
+              : llmResult.followUpQuestions || [],
         };
 
-        /**
-         * Persist analysis results
-         */
         review.analysisResult = result;
         review.status = "completed";
 
         await review.save();
 
         console.log(`Completed review: ${reviewId}`);
+        } catch (err) {
+          console.error(`Failed processing review ${reviewId}:`, err);
+
+          /**
+           * Persist failure state in DB
+           */
+          if (review) {
+            review.status = "failed";
+            await review.save();
+          }
+
+          throw err;
+        }
       },
 
-      /**
-       * Worker connection configuration
-       */
-      { connection },
+      { connection }
     );
 
     /**
-     * Error handling for failed jobs
-     *
-     * Triggered when:
-     * - job throws an exception
-     * - processing fails unexpectedly
+     * Worker error handling
      */
     worker.on("failed", (job, err) => {
       console.error("Job failed:", err);
@@ -164,10 +423,6 @@ mongoose
 
   /**
    * MongoDB connection failure handling
-   *
-   * If DB connection fails:
-   * - Worker cannot function correctly
-   * - Process exits to avoid running in invalid state
    */
   .catch((err) => {
     console.error("❌ MongoDB connection error (worker):", err);

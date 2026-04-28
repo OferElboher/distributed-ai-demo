@@ -92,6 +92,13 @@ const ReviewSchema = new mongoose.Schema(
       default: [],
     },
 
+    override: {
+      verdict: String,
+      recommendedAction: String,
+      reason: String,
+      timestamp: Date,
+    },
+
     ///////////////////////////////////////////////////////////////////////////
     // Processing State
     ///////////////////////////////////////////////////////////////////////////
