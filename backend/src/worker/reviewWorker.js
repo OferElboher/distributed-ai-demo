@@ -132,6 +132,7 @@ mongoose
         const { reviewId } = job.data;
 
         console.log(`Processing review: ${reviewId}`);
+        console.log(`REVIEW STATUS UPDATE: ${reviewId} -> processing`);
 
         /**
          * IMPORTANT:
@@ -362,6 +363,7 @@ mongoose
          * IMPORTANT:
          * LLM output is NEVER allowed to override rule-based verdict.
          */
+        await new Promise(r => setTimeout(r, 5000));
         const llmResult = await analyzeReview(review);
 
 
@@ -375,14 +377,26 @@ mongoose
          * - LLM enhances explanation and structure
          * - Rules always take precedence over model output
          */
+        findings = Array.isArray(findings) ? findings : [];
         const result = {
           verdict,
           recommendedAction,
           summary: llmResult.summary,
+
           findings: [
-            ...findings,
-            ...(llmResult.findings || []),
+            ...findings.map(f => ({
+              explanation: String(f?.explanation ?? "No explanation provided"),
+              severity: String(f?.severity ?? "low"),
+            })),
+
+            ...(Array.isArray(llmResult.findings)
+              ? llmResult.findings.map(f => ({
+                  explanation: String(f?.explanation ?? "No explanation provided"),
+                  severity: String(f?.severity ?? "low"),
+                }))
+              : []),
           ],
+
           followUpQuestions:
             followUpQuestions.length > 0
               ? followUpQuestions
@@ -393,8 +407,12 @@ mongoose
         review.status = "completed";
 
         await review.save();
-
+        console.log(`REVIEW STATUS UPDATE: ${reviewId} -> completed`);
         console.log(`Completed review: ${reviewId}`);
+        return {
+          reviewId,
+          status: "completed"
+        };
         } catch (err) {
           console.error(`Failed processing review ${reviewId}:`, err);
 
@@ -407,7 +425,6 @@ mongoose
           }
 
           throw err;
-          return;
         }
       },
 

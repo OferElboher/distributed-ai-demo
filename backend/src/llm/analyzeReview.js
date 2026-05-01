@@ -45,6 +45,21 @@
  * @returns {Object} structured analysis result
  */
 async function analyzeReview(review) {
+
+  // TEMP DEBUG CODE: LLM DISABLED: START
+  return {
+    verdict: "safe",
+    findings: [
+      {
+        type: "mock",
+        description: "LLM disabled - mock result"
+      }
+    ],
+    followUpQuestions: [],
+    recommendedAction: "none"
+  };
+  // TEMP DEBUG CODE: LLM DISABLED: END
+
   const prompt = `
 You are a cybersecurity analyst.
 

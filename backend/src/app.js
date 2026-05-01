@@ -78,14 +78,21 @@ app.get("/health", (req, res) => {
  */
 app.post("/test", async (req, res) => {
   try {
+    const { body, subject } = req.body;
+    if (!body) {
+      return res.status(400).json({ error: "body_required" });
+    }
+
     const review = await Review.create({
-      body: req.body.message,
-      subject: "demo subject",
+      body,
+      subject: subject || "no subject",
       senderEmail: "demo@example.com",
       senderName: "demo user",
       status: "pending",
       createdAt: new Date(),
     });
+
+    console.log("REVIEW CREATED:", review._id.toString(), "status=pending");
 
     await reviewQueue.add("analyze", {
       reviewId: review._id.toString(),
@@ -95,6 +102,7 @@ app.post("/test", async (req, res) => {
       ok: true,
       reviewId: review._id,
     });
+
   } catch (err) {
     console.error("TEST endpoint error:", err);
     res.status(500).json({ error: "internal_error" });
@@ -175,6 +183,8 @@ app.post("/reviews/:id/override", async (req, res) => {
 
     await review.save();
 
+    console.log("REVIEW OVERRIDDEN:", review._id.toString(), review.override);
+
     res.json({ ok: true, review });
   } catch (err) {
     console.error("Override error:", err);
@@ -222,4 +232,13 @@ app.listen(PORT, () => {
 
 /**
  * Audit trail + analyst override system
+ */
+
+/**
+ * Centralized logging system
+ * - single logger module shared across backend + worker
+ * - structured logs (JSON)
+ * - replace all console.log usage
+ * - support log levels (info, warn, error)
+ * - enable future integration with log aggregators (ELK/Loki)
  */
