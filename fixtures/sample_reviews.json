@@ -1,0 +1,16 @@
+[
+  {
+    "senderName": "Microsoft Support",
+    "senderEmail": "security-update@micr0soft-login-help.com",
+    "subject": "Your account will be disabled today",
+    "body": "Your Microsoft 365 password expires today. Click the secure link below to keep access.",
+    "links": ["https://microsoft-login-help.example/reset"]
+  },
+  {
+    "senderName": "Internal IT",
+    "senderEmail": "it@company.com",
+    "subject": "Quarterly update",
+    "body": "Please find the quarterly report attached. No action required.",
+    "links": []
+  }
+]
