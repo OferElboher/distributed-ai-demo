@@ -323,15 +323,10 @@ const pollReview = async (id) => {
    * - make intermediate states (pending/processing) visible
    * - avoid "instant jump to completed" UX illusion
    */
-  setResult(prev => ({
-    _id: data._id,
-    status: data.status,
-    analysisResult: data.analysisResult,
-    createdAt: data.createdAt,
-    updatedAt: data.updatedAt,
+  setResult({
+    ...data,
     _polling: data.status !== "completed"
-  }));
-
+  });
   if (data.status !== "completed") {
     setTimeout(() => pollReview(id), 1500);
   }
@@ -437,13 +432,6 @@ return (
       Submit for Analysis
     </button>
 
-
-
-
-
-
-
-
     {/* 
       REVIEW RESULT DISPLAY
       ----------------------
@@ -491,7 +479,7 @@ return (
           <p><b>Created:</b> {new Date(result.createdAt).toLocaleString()}</p>
         )}
         {result.updatedAt && (
-          <p><b>Updated:</b> {new Date(result.createdAt).toLocaleString()}</p>
+          <p><b>Updated:</b> {new Date(result.updatedAt).toLocaleString()}</p>
         )}
 
         {/*
@@ -543,16 +531,6 @@ return (
         )}
       </div>
     )}
-
-
-
-
-
-
-
-
-
-
 
     {/* 
       ANALYST OVERRIDE SECTION

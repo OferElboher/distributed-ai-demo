@@ -102,7 +102,7 @@ const connection = new IORedis({
 mongoose
   .connect("mongodb://mongo:27017/triage")
   .then(() => {
-    console.log("Worker connected to MongoDB");
+    console.log(`[${new Date().toISOString()}] Worker connected to MongoDB`);
 
     /**
      * BullMQ Worker Definition
@@ -131,8 +131,8 @@ mongoose
       async (job) => {
         const { reviewId } = job.data;
 
-        console.log(`Processing review: ${reviewId}`);
-        console.log(`REVIEW STATUS UPDATE: ${reviewId} -> processing`);
+        console.log(`[${new Date().toISOString()}] Processing review: ${reviewId}`);
+        console.log(`[${new Date().toISOString()}] REVIEW STATUS UPDATE: ${reviewId} -> processing`);
 
         /**
          * IMPORTANT:
@@ -190,10 +190,11 @@ mongoose
           verdict = "likely_phishing";
           recommendedAction = "report_and_block";
           findings.push({
-            severity: "critical",
+            severity: "high",
             explanation: "Credential or sensitive data request detected",
             evidence: review.body.slice(0, 120),
           });
+
         }
 
         /**
@@ -363,7 +364,11 @@ mongoose
          * IMPORTANT:
          * LLM output is NEVER allowed to override rule-based verdict.
          */
-        await new Promise(r => setTimeout(r, 5000));
+        // When along development/debugging, add an artificial delay that will enable
+        // the user to see the review handling state dynamically changing.
+        if (process.env.REACT_APP_DEBUG_MODE === "true") {
+          await new Promise(r => setTimeout(r, 5000));
+        }
         const llmResult = await analyzeReview(review);
 
 
@@ -378,21 +383,36 @@ mongoose
          * - Rules always take precedence over model output
          */
         findings = Array.isArray(findings) ? findings : [];
+
+        const finalVerdict = llmResult.verdict || verdict;
+
+        const finalAction =
+          finalVerdict === "benign" ? "close" :
+          finalVerdict === "suspicious" ? "investigate" :
+          "report_and_block";
+
+        const normalizeSeverity = (s) => {
+          if (s === "critical") return "high";
+          if (s === "high") return "high";
+          if (s === "medium") return "medium";
+          return "low";
+        };
+
         const result = {
-          verdict,
-          recommendedAction,
+          verdict: finalVerdict,
+          recommendedAction: finalAction,
           summary: llmResult.summary,
 
           findings: [
             ...findings.map(f => ({
               explanation: String(f?.explanation ?? "No explanation provided"),
-              severity: String(f?.severity ?? "low"),
+              severity: normalizeSeverity(f?.severity),
             })),
 
             ...(Array.isArray(llmResult.findings)
               ? llmResult.findings.map(f => ({
                   explanation: String(f?.explanation ?? "No explanation provided"),
-                  severity: String(f?.severity ?? "low"),
+                  severity: normalizeSeverity(f?.severity),
                 }))
               : []),
           ],
@@ -407,8 +427,8 @@ mongoose
         review.status = "completed";
 
         await review.save();
-        console.log(`REVIEW STATUS UPDATE: ${reviewId} -> completed`);
-        console.log(`Completed review: ${reviewId}`);
+        console.log(`[${new Date().toISOString()}] REVIEW STATUS UPDATE: ${reviewId} -> completed`);
+        console.log(`[${new Date().toISOString()}] Completed review: ${reviewId}`);
         return {
           reviewId,
           status: "completed"

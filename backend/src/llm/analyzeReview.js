@@ -46,21 +46,24 @@
  */
 async function analyzeReview(review) {
 
+  console.log(`[${new Date().toISOString()}] LLM CALL START review=${review._id}`);
   // TEMP DEBUG CODE: LLM DISABLED: START
-  return {
-    verdict: "safe",
-    findings: [
-      {
-        type: "mock",
-        description: "LLM disabled - mock result"
-      }
-    ],
-    followUpQuestions: [],
-    recommendedAction: "none"
+  if (process.env.DISABLE_LLM === "true") {
+    return {
+      verdict: "safe",
+      findings: [
+        {
+          type: "mock",
+          description: "LLM disabled - mock result"
+        }
+      ],
+      followUpQuestions: [],
+      recommendedAction: "none"
+    };
   };
   // TEMP DEBUG CODE: LLM DISABLED: END
 
-  const prompt = `
+const prompt = `
 You are a cybersecurity analyst.
 
 Analyze the following email and return STRICT JSON only.
@@ -84,24 +87,58 @@ Return format:
   ],
   "followUpQuestions": []
 }
-`;
 
-  const res = await fetch("http://localhost:11434/api/generate", {
+IMPORTANT RULES:
+- If verdict is "benign" then recommendedAction MUST be "close"
+- If verdict is "suspicious" then recommendedAction MUST be "investigate"
+- If verdict is "likely_phishing" then recommendedAction MUST be "report_and_block"
+`;
+  const res = await fetch("http://host.docker.internal:11434/api/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "llama3",
       prompt,
-      stream: false
+      stream: false,
+      format: "json"
     })
   });
 
   const data = await res.json();
-
   try {
-    return JSON.parse(data.response);
+    let raw = data.response;
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (!match) {
+        console.log(`[${new Date().toISOString()}] RAW LLM OUTPUT:\n`, raw);
+        throw new Error("Invalid JSON returned from LLM");
+      }
+      parsed = JSON.parse(match[0]);
+    }
+    // ENFORCE CONSISTENCY (hard rule)
+    let response = parsed;
+    if (response.verdict === "benign") {
+      response.recommendedAction = "close";
+    }
+    if (response.verdict === "suspicious") {
+      response.recommendedAction = "investigate";
+    }
+    if (response.verdict === "likely_phishing") {
+      response.recommendedAction = "report_and_block";
+    }
+    console.log(
+      `[${new Date().toISOString()}] LLM CALL SUCCESS review=${review._id}`
+    );
+    return response;
   } catch (err) {
-    throw new Error("Invalid JSON returned from LLM");
+    console.log(
+      `[${new Date().toISOString()}] LLM CALL FAILURE review=${review._id}`,
+      err
+    );
+    throw err;
   }
 }
 
